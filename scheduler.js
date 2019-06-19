@@ -8,7 +8,7 @@ const cors = require('cors');
 const rapsync = require('./router/rapnetSync.router');
 
 const app = express();
-const hostname = 'localhost';
+const hostname = '0.0.0.0';
 const port = 8013;
 
 util.cachedUrl="52.74.209.117:80";
