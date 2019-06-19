@@ -5,6 +5,7 @@ var request = require('request');
 const Json2csvParser = require('json2csv').Parser;
 const fs = require('fs');
 var dateFormat = require('dateformat');
+let async = require("async");
 
 exports.rapnetPacketDelete =async function (req, res, connection, redirectParam, callback) {
     var formNme = req.body.formNme || '';
@@ -61,7 +62,11 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                     if(fileExtension == 'csv'){
                         const json2csvParser = new Json2csvParser({ resultView });
                         const csv = json2csvParser.parse(packetDtlList);
+<<<<<<< HEAD
                         fs.writeFile(filePath, csv,async function(err) {
+=======
+                        fs.writeFile(filePath, csv, function(err) {
+>>>>>>> d8c3ce52fa91c57b357918a01e9d570a8ed9877d
                             if (err) {
                             console.log("error",err)
                             outJson["result"]=resultFinal;
@@ -69,6 +74,10 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                             outJson["message"]="CSV Download Fail";
                             callback(null,outJson);
                             } else {
+<<<<<<< HEAD
+=======
+                                let tileWisearrayExec = [];
+>>>>>>> d8c3ce52fa91c57b357918a01e9d570a8ed9877d
                                 //console.log("usernamelist",usernamelist.length);
                                 for (let i = 0; i < usernamelist.length; i++) {
                                     let username = usernamelist[i];
@@ -81,6 +90,7 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                                     methodParamLocal["fileExtension"] = fileExtension;
                                     //console.log(methodParamLocal);
                                     deleteFileUpload(methodParamLocal);
+<<<<<<< HEAD
                                 }
 
                                 var param = {
@@ -116,6 +126,13 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                                 } else {
                                     callback(null, buyerInfo);
                                 }
+=======
+                                }
+                                outJson["result"] = resultFinal;
+                                outJson["status"] = "SUCCESS";
+                                outJson["message"] = "SUCCESS";
+                                callback(null, outJson);
+>>>>>>> d8c3ce52fa91c57b357918a01e9d570a8ed9877d
                             }
                         });
                     }
@@ -158,7 +175,11 @@ async function deleteFileUpload(paramJson){
             let token = tokenResult.result;
     
             let uploadPath = "http://technet.rapaport.com/HTTP/Upload/Upload.aspx?Method=file&ReplaceAll=false&ticket=" + token;
+<<<<<<< HEAD
             //console.log("uploadPath",uploadPath);
+=======
+            console.log("uploadPath",uploadPath);
+>>>>>>> d8c3ce52fa91c57b357918a01e9d570a8ed9877d
             var options = {
                 url: uploadPath,
                 headers: { 'Content-Type': 'multipart/form-data'},
@@ -261,7 +282,11 @@ function getFileDeletePackets(tpoolconn, paramJson, callback) {
 
     let params = [];
     let fmt = {};
+<<<<<<< HEAD
     let query = "select gen_file_ary_delete($1, 'rapnet_ind', $2) del_ary";
+=======
+    let query = "select gen_file_ary_delete($1, 'rapnet_ind', 45) del_ary";
+>>>>>>> d8c3ce52fa91c57b357918a01e9d570a8ed9877d
     params.push(coIdn);
     params.push(parseInt(timePeriod));
     //console.log(query);
