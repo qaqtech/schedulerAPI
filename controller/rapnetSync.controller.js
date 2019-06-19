@@ -12,9 +12,7 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
     var timePeriod = req.body.timePeriod || '15';
 
     var coIdn = redirectParam.coIdn;
-    var applIdn = redirectParam.applIdn;
     let source = redirectParam.source || req.body.source;
-    let userIdn = redirectParam.userIdn;
     let outJson = {};
     let methodParam = {};
     var resultFinal = {};
@@ -84,39 +82,22 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                                     deleteFileUpload(methodParamLocal);
                                 }
 
-                                var param = {
-                                    "db":connection,
-                                    "coIdn":coIdn,
-                                    "userIdn":userIdn
-                                }
-                                // console.log("execBuyerBasicInfoSearch");
-                    
-                                let buyerInfo = await coreUtil.execBuyerBasicInfoSearch(param);          
-                                if(buyerInfo["status"]== 'SUCCESS'){
-                                    var infoList = buyerInfo["info"] || {};
-                                    let buyer = infoList.buyer;
-                                    let empidn = infoList.empidn;
-                                    let byridn = infoList.byridn;
-
-                                    methodParam = {};
-                                    methodParam["resultView"]=resultView;
-                                    methodParam["coIdn"] = coIdn;
-                                    methodParam["empidn"]=empidn;
-                                    methodParam["formatNme"] = 'rapnet_delete';
-                                    methodParam["pktDetails"]=packetDtlList;
-                                    methodParam["buyerYN"]="No";
-                                    methodParam["byridn"]=byridn;
-                                    methodParam["packetDisplayCnt"]=10;
-                                    methodParam["usernamelist"] = usernamelist;
-                                    let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
-                                    console.log("mailResult",mailResult);
-                                    outJson["result"] = resultFinal;
-                                    outJson["status"] = "SUCCESS";
-                                    outJson["message"] = "SUCCESS";
-                                    callback(null, outJson);
-                                } else {
-                                    callback(null, buyerInfo);
-                                }
+                                methodParam = {};
+                                methodParam["resultView"]=resultView;
+                                methodParam["coIdn"] = coIdn;
+                                methodParam["empidn"]="1";
+                                methodParam["formatNme"] = 'rapnet_delete';
+                                methodParam["pktDetails"]=packetDtlList;
+                                methodParam["buyerYN"]="No";
+                                methodParam["byridn"]="1";
+                                methodParam["packetDisplayCnt"]=10;
+                                methodParam["usernamelist"] = usernamelist;
+                                let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
+                                console.log("mailResult",mailResult);
+                                outJson["result"] = resultFinal;
+                                outJson["status"] = "SUCCESS";
+                                outJson["message"] = "SUCCESS";
+                                callback(null, outJson);
                             }
                         });
                     }
