@@ -9,10 +9,12 @@ let async = require("async");
 
 exports.rapnetPacketDelete =async function (req, res, connection, redirectParam, callback) {
     var formNme = req.body.formNme || '';
+    var timePeriod = req.body.timePeriod || '15';
 
     var coIdn = redirectParam.coIdn;
     var applIdn = redirectParam.applIdn;
     let source = redirectParam.source || req.body.source;
+    let userIdn = redirectParam.userIdn;
     let outJson = {};
     let methodParam = {};
     var resultFinal = {};
@@ -22,6 +24,7 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
     if (formNme != '') {
         methodParam = {};
         methodParam["coIdn"] = coIdn;
+        methodParam["timePeriod"] = timePeriod;
         let fileArrayResult = await execGetFileDeletePackets(methodParam,connection);
         if(fileArrayResult.status == 'SUCCESS'){
             let resultView = fileArrayResult["resultView"] || [];
@@ -59,7 +62,7 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                     if(fileExtension == 'csv'){
                         const json2csvParser = new Json2csvParser({ resultView });
                         const csv = json2csvParser.parse(packetDtlList);
-                        fs.writeFile(filePath, csv, function(err) {
+                        fs.writeFile(filePath, csv,async function(err) {
                             if (err) {
                             console.log("error",err)
                             outJson["result"]=resultFinal;
@@ -67,7 +70,6 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                             outJson["message"]="CSV Download Fail";
                             callback(null,outJson);
                             } else {
-                                let tileWisearrayExec = [];
                                 //console.log("usernamelist",usernamelist.length);
                                 for (let i = 0; i < usernamelist.length; i++) {
                                     let username = usernamelist[i];
@@ -81,10 +83,40 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                                     //console.log(methodParamLocal);
                                     deleteFileUpload(methodParamLocal);
                                 }
-                                outJson["result"] = resultFinal;
-                                outJson["status"] = "SUCCESS";
-                                outJson["message"] = "SUCCESS";
-                                callback(null, outJson);
+
+                                var param = {
+                                    "db":connection,
+                                    "coIdn":coIdn,
+                                    "userIdn":userIdn
+                                }
+                                // console.log("execBuyerBasicInfoSearch");
+                    
+                                let buyerInfo = await coreUtil.execBuyerBasicInfoSearch(param);          
+                                if(buyerInfo["status"]== 'SUCCESS'){
+                                    var infoList = buyerInfo["info"] || {};
+                                    let buyer = infoList.buyer;
+                                    let empidn = infoList.empidn;
+                                    let byridn = infoList.byridn;
+
+                                    methodParam = {};
+                                    methodParam["resultView"]=resultView;
+                                    methodParam["coIdn"] = coIdn;
+                                    methodParam["empidn"]=empidn;
+                                    methodParam["formatNme"] = 'rapnet_delete';
+                                    methodParam["pktDetails"]=packetDtlList;
+                                    methodParam["buyerYN"]="No";
+                                    methodParam["byridn"]=byridn;
+                                    methodParam["packetDisplayCnt"]=10;
+                                    methodParam["usernamelist"] = usernamelist;
+                                    let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
+                                    console.log("mailResult",mailResult);
+                                    outJson["result"] = resultFinal;
+                                    outJson["status"] = "SUCCESS";
+                                    outJson["message"] = "SUCCESS";
+                                    callback(null, outJson);
+                                } else {
+                                    callback(null, buyerInfo);
+                                }
                             }
                         });
                     }
@@ -127,7 +159,7 @@ async function deleteFileUpload(paramJson){
             let token = tokenResult.result;
     
             let uploadPath = "http://technet.rapaport.com/HTTP/Upload/Upload.aspx?Method=file&ReplaceAll=false&ticket=" + token;
-            console.log("uploadPath",uploadPath);
+            //console.log("uploadPath",uploadPath);
             var options = {
                 url: uploadPath,
                 headers: { 'Content-Type': 'multipart/form-data'},
@@ -224,13 +256,15 @@ function execGetFileDeletePackets(methodParam, tpoolconn) {
 
 function getFileDeletePackets(tpoolconn, paramJson, callback) {
     var coIdn = paramJson.coIdn || '';
+    let timePeriod = paramJson.timePeriod;
     let outJson = {};
     let list = [];
 
     let params = [];
     let fmt = {};
-    let query = "select gen_file_ary_delete($1, 'rapnet_ind', 45) del_ary";
+    let query = "select gen_file_ary_delete($1, 'rapnet_ind', $2) del_ary";
     params.push(coIdn);
+    params.push(parseInt(timePeriod));
     //console.log(query);
     //console.log(params);
     coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
