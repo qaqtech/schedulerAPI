@@ -1,7 +1,6 @@
 const coreUtil = require('qaq-core-util');
 const coreDB = require('qaq-core-db');
 var rapnetSyncController = require('../controller/rapnetSync.controller');
-var async = require("async");
 
 exports.load = function(req, res) {
     var outJson = {};

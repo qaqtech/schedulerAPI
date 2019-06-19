@@ -330,5 +330,5 @@ function getFileOptionsDtl(tpoolconn, paramJson, callback) {
                 callback(null, outJson);
             }
         }
-    });
+    })
 }
