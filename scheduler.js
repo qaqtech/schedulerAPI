@@ -23,7 +23,7 @@ app.use(bodyParser.urlencoded({  limit: '1000mb', extended: true }))
 // parse requests of content-type - application/json
 app.use(bodyParser.json({ limit: '1000mb',extended: true }));
 
-app.use("/",rapsync);
+app.use("/rapsync",rapsync);
 
 
  app.listen(port, hostname, () => {
