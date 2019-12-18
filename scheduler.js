@@ -9,7 +9,7 @@ const rapsync = require('./router/rapnetSync.router');
 
 const app = express();
 const hostname = '0.0.0.0';
-const port = 8013;
+const port = 8140;
 
 util.cachedUrl="52.74.209.117:80";
 
