@@ -27,7 +27,7 @@ app.use(bodyParser.json({ limit: '1000mb',extended: true }));
 app.use("/",rapsync);
 
 
- app.listen(port, hostname, () => {
+app.listen(port, hostname, () => {
     util.getCache("clientModuleKeys",util.cachedUrl).then(data => {
 		//console.log(data);
 		if(data!=''){
@@ -36,11 +36,12 @@ app.use("/",rapsync);
 		 var poolNme = moduleDtl.pool||'TPOOL';
 		 let poolList=[];
 		 poolList.push(poolNme);
+		 poolList.push("MFGPOOL");
 		 coreDB.initializePoolsList(poolList).then(poolsList => {
              coreDB.poolsList=poolsList;
                console.log(`transactionPools Created `);
                      console.log(`Server running at http://${hostname}:${port}/`);
             });
 		}
-		});
-		});
+	});
+});

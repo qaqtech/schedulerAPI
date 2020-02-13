@@ -4,16 +4,13 @@ const coreUtil = require('qaq-core-util');
 var async = require("async");
 var request = require('request');
 var https = require("http");
+var urlExists = require('url-exists');
 var replaceall = require("replaceall");
+let AWS = require('aws-sdk');
 var dateFormat = require('dateformat');
 
-exports.pendingBidAllocMail = function(req,res,tpoolconn,redirectParam,callback) {
-    var userIdn = redirectParam.userIdn; 
+exports.pendingBidAllocMailApi = function(req,res,tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
-    var pvtConfigure = redirectParam.pvtConfigure;
-    var logUsr = redirectParam.logUsr;
-    var applIdn = redirectParam.applIdn;
-    var loginid = redirectParam.loginid;
     let source = redirectParam.source || req.body.source;
     let poolName = redirectParam.poolName || '';
     var paramJson={};  
@@ -41,11 +38,11 @@ exports.pendingBidAllocMail = function(req,res,tpoolconn,redirectParam,callback)
                     let  processIdn = result.rows[0].process_idn || "";
                     //console.log("processIdn",processIdn);
                     paramJson["coIdn"]=coIdn;
-                    paramJson["userIdn"]=userIdn;
-                    paramJson["pvtConfigure"]=pvtConfigure;
+                    paramJson["userIdn"]=null;
+                    paramJson["pvtConfigure"]='';
                     paramJson["source"]=source;
                     paramJson["processIdn"]=processIdn;
-                    paramJson["logUsr"]=logUsr;
+                    paramJson["logUsr"]='';
                     paramJson["buyerYN"]=buyerYN;
                     paramJson["poolName"]=poolName;
                     mailSend(tpoolconn,paramJson,function(error,mailDetails){
@@ -67,6 +64,94 @@ exports.pendingBidAllocMail = function(req,res,tpoolconn,redirectParam,callback)
                 }
             }
         })
+    }else if(processNme == ''){
+        outJson["status"]="FAIL";
+        outJson["message"]="Please Verify Process Name Parameter";
+        callback(null,outJson);
+    }   
+}
+
+exports.pendingBidRejectionMailApi =async function(req,res,tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    let source = redirectParam.source || req.body.source;
+    let poolName = redirectParam.poolName || '';
+    var cachedUrl = require('qaq-core-util').cachedUrl;
+    var paramJson={};  
+    var outJson={};
+    let resultFinal = {};
+    let formNme = "mailWebRequestFormat";
+
+    var processNme = req.body.processNme || '';
+    var buyerYN = req.body.buyerYN || 'yes';
+    if(processNme != ''){
+        let resultView = [];
+        let methodParam = {};
+        methodParam["formName"]=formNme;
+        methodParam["display_key"]="result";
+        methodParam["nme"]="WEB_MAIL";
+        methodParam["userIdn"]=null;
+        methodParam["coIdn"]=coIdn;
+        methodParam["db"]=tpoolconn;
+        methodParam["userCtg"]="";
+        let attrresult = await coreUtil.pageDisplay(methodParam);
+        resultView=attrresult.attr || [];
+
+        methodParam = {};
+        methodParam["resultView"]=resultView;
+        methodParam["source"]=source;
+        methodParam["processNme"]=processNme;
+        methodParam["coIdn"]=coIdn;
+        let pktResult = await execGetPacketDetails(methodParam,tpoolconn);
+        if(pktResult.status == 'SUCCESS'){
+            let buyerList = pktResult["buyerList"];
+            let packetDtlMap = pktResult["result"];
+            let attrDisplayDtl = pktResult["attrDisplayDtl"];
+            let buyerListLen = buyerList.length;
+            let tileWisearrayExec = [];
+            //console.log(buyerList)
+            let dbmsDtldata = await coreUtil.getCache("dbms_"+coIdn,cachedUrl);
+            let formatNme = processNme+"_rejected";
+            //console.log(formatNme)
+            for(let k=0;k<buyerListLen;k++){
+                let buyer = buyerList[k];
+                let packetDtl = packetDtlMap[buyer];
+
+                let methodParams = {};
+                methodParams["packetDtl"]=packetDtl;
+                methodParams["source"]=source;
+                methodParams["coIdn"]=coIdn;
+                methodParams["attrDisplayDtl"]=attrDisplayDtl;
+                methodParams["resultView"]=resultView;
+                methodParams["formatNme"]=formatNme;
+                methodParams["buyerYN"]=buyerYN;
+                methodParams["logUsr"]="";
+                methodParams["poolName"]=poolName;
+                tileWisearrayExec.push(function(callback) { execMailSendRejection(methodParams,callback) });
+            }
+
+            async.parallel(tileWisearrayExec,function(err,result){
+                if (err) {
+                    console.log(err);
+                    outJson["result"]=resultFinal;
+                    outJson["status"]="FAIL";
+                    outJson["message"]=err;
+                    callback(null,outJson);
+                }
+                let resultlen=result.length || 0;
+                let totalSucessMail=0;
+                for (let r=0;r<resultlen;r++){
+                    let localresult=result[r].result || {};
+                    totalSucessMail=totalSucessMail+localresult["count"] || 0;
+                }
+
+                outJson["result"]=resultFinal;
+                outJson["status"]="SUCCESS";
+                outJson["message"]="Total Mail Count ="+buyerListLen+" ,Sucess ="+totalSucessMail+" ,Fail ="+(buyerListLen-totalSucessMail);
+                callback(null,outJson);
+            })
+        }else{
+            callback(null,pktResult);
+        }           
     }else if(processNme == ''){
         outJson["status"]="FAIL";
         outJson["message"]="Please Verify Process Name Parameter";
@@ -225,99 +310,6 @@ function execMailSendTransSale(paramJson,callback){
         outJson["message"]="Fail To Get Conection!";
         callback(null,outJson);
     }
-}
-
-exports.pendingBidRejectionMail =async function(req,res,tpoolconn,redirectParam,callback) {
-    var userIdn = redirectParam.userIdn; 
-    var coIdn = redirectParam.coIdn;
-    var pvtConfigure = redirectParam.pvtConfigure;
-    var logUsr = redirectParam.logUsr;
-    var applIdn = redirectParam.applIdn;
-    var loginid = redirectParam.loginid;
-    let source = redirectParam.source || req.body.source;
-    let poolName = redirectParam.poolName || '';
-    var cachedUrl = require('qaq-core-util').cachedUrl;
-    var paramJson={};  
-    var outJson={};
-    let resultFinal = {};
-    let formNme = "mailWebRequestFormat";
-
-    var processNme = req.body.processNme || '';
-    var buyerYN = req.body.buyerYN || 'yes';
-    if(processNme != ''){
-        let resultView = [];
-        let methodParam = {};
-        methodParam["formName"]=formNme;
-        methodParam["display_key"]="result";
-        methodParam["nme"]="WEB_MAIL";
-        methodParam["userIdn"]=userIdn;
-        methodParam["coIdn"]=coIdn;
-        methodParam["db"]=tpoolconn;
-        methodParam["userCtg"]=pvtConfigure;
-        let attrresult = await coreUtil.pageDisplay(methodParam);
-        resultView=attrresult.attr || [];
-
-        methodParam = {};
-        methodParam["resultView"]=resultView;
-        methodParam["source"]=source;
-        methodParam["processNme"]=processNme;
-        methodParam["coIdn"]=coIdn;
-        let pktResult = await execGetPacketDetails(methodParam,tpoolconn);
-        if(pktResult.status == 'SUCCESS'){
-            let buyerList = pktResult["buyerList"];
-            let packetDtlMap = pktResult["result"];
-            let attrDisplayDtl = pktResult["attrDisplayDtl"];
-            let buyerListLen = buyerList.length;
-            let tileWisearrayExec = [];
-            //console.log(buyerList)
-            let dbmsDtldata = await coreUtil.getCache("dbms_"+coIdn,cachedUrl);
-            let formatNme = processNme+"_rejected";
-            //console.log(formatNme)
-            for(let k=0;k<buyerListLen;k++){
-                let buyer = buyerList[k];
-                let packetDtl = packetDtlMap[buyer];
-
-                let methodParams = {};
-                methodParams["packetDtl"]=packetDtl;
-                methodParams["source"]=source;
-                methodParams["coIdn"]=coIdn;
-                methodParams["attrDisplayDtl"]=attrDisplayDtl;
-                methodParams["resultView"]=resultView;
-                methodParams["formatNme"]=formatNme;
-                methodParams["buyerYN"]=buyerYN;
-                methodParams["logUsr"]=logUsr;
-                methodParams["poolName"]=poolName;
-                tileWisearrayExec.push(function(callback) { execMailSendRejection(methodParams,callback) });
-            }
-
-            async.parallel(tileWisearrayExec,function(err,result){
-                if (err) {
-                    console.log(err);
-                    outJson["result"]=resultFinal;
-                    outJson["status"]="FAIL";
-                    outJson["message"]=err;
-                    callback(null,outJson);
-                }
-                let resultlen=result.length || 0;
-                let totalSucessMail=0;
-                for (let r=0;r<resultlen;r++){
-                    let localresult=result[r].result || {};
-                    totalSucessMail=totalSucessMail+localresult["count"] || 0;
-                }
-
-                outJson["result"]=resultFinal;
-                outJson["status"]="SUCCESS";
-                outJson["message"]="Total Mail Count ="+buyerListLen+" ,Sucess ="+totalSucessMail+" ,Fail ="+(buyerListLen-totalSucessMail);
-                callback(null,outJson);
-            })
-        }else{
-            callback(null,pktResult);
-        }           
-    }else if(processNme == ''){
-        outJson["status"]="FAIL";
-        outJson["message"]="Please Verify Process Name Parameter";
-        callback(null,outJson);
-    }   
 }
 
 function execGetPacketDetails(methodParam, tpoolconn) {
@@ -557,156 +549,6 @@ function execMailSendRejection(paramJson,callback){
         outJson["message"]="Fail To Get Conection!";
         callback(null,outJson);
     }
-}
-
-exports.pendingBidAllocMailApi = function(req,res,tpoolconn,redirectParam,callback) {
-    var coIdn = redirectParam.coIdn;
-    let source = redirectParam.source || req.body.source;
-    let poolName = redirectParam.poolName || '';
-    var paramJson={};  
-    var outJson={};
-
-    var processNme = req.body.processNme || '';
-    var buyerYN = req.body.buyerYN || 'yes';
-    if(processNme != ''){
-        let query="select process_idn  "+
-		    "from stock_process p "+
-            "where co_idn = $1 and nme = '"+processNme+"'||'_approved' and p.stt = 1 ";
-
-        let params = [];
-        params = [coIdn];
-        
-        coreDB.executeTransSql(tpoolconn,query,params,{},function(error,result){
-            if(error){
-                outJson["status"]="FAIL";
-                outJson["message"]=error.message;
-                callback(null,outJson);
-            }else{
-                var len=result.rows.length;
-
-                if(len!=0){
-                    let  processIdn = result.rows[0].process_idn || "";
-                    //console.log("processIdn",processIdn);
-                    paramJson["coIdn"]=coIdn;
-                    paramJson["userIdn"]=null;
-                    paramJson["pvtConfigure"]='';
-                    paramJson["source"]=source;
-                    paramJson["processIdn"]=processIdn;
-                    paramJson["logUsr"]='';
-                    paramJson["buyerYN"]=buyerYN;
-                    paramJson["poolName"]=poolName;
-                    mailSend(tpoolconn,paramJson,function(error,mailDetails){
-                        if(error){
-                        // console.log(error);
-                            outJson["result"]='';
-                            outJson["status"]="FAIL";
-                            outJson["message"]="Fail To Send pendingBidAllocMail!";
-                            callback(null,outJson);
-                        }else{         
-                            callback(null,mailDetails);                                                
-                        }
-                    })
-                }else{
-                    outJson["result"]='';
-                    outJson["status"]="FAIL";
-                    outJson["message"]="Fail To Find Process Idn!";
-                    callback(null,outJson);
-                }
-            }
-        })
-    }else if(processNme == ''){
-        outJson["status"]="FAIL";
-        outJson["message"]="Please Verify Process Name Parameter";
-        callback(null,outJson);
-    }   
-}
-
-exports.pendingBidRejectionMailApi =async function(req,res,tpoolconn,redirectParam,callback) {
-    var coIdn = redirectParam.coIdn;
-    let source = redirectParam.source || req.body.source;
-    let poolName = redirectParam.poolName || '';
-    var cachedUrl = require('qaq-core-util').cachedUrl;
-    var paramJson={};  
-    var outJson={};
-    let resultFinal = {};
-    let formNme = "mailWebRequestFormat";
-
-    var processNme = req.body.processNme || '';
-    var buyerYN = req.body.buyerYN || 'yes';
-    if(processNme != ''){
-        let resultView = [];
-        let methodParam = {};
-        methodParam["formName"]=formNme;
-        methodParam["display_key"]="result";
-        methodParam["nme"]="WEB_MAIL";
-        methodParam["userIdn"]=null;
-        methodParam["coIdn"]=coIdn;
-        methodParam["db"]=tpoolconn;
-        methodParam["userCtg"]="";
-        let attrresult = await coreUtil.pageDisplay(methodParam);
-        resultView=attrresult.attr || [];
-
-        methodParam = {};
-        methodParam["resultView"]=resultView;
-        methodParam["source"]=source;
-        methodParam["processNme"]=processNme;
-        methodParam["coIdn"]=coIdn;
-        let pktResult = await execGetPacketDetails(methodParam,tpoolconn);
-        if(pktResult.status == 'SUCCESS'){
-            let buyerList = pktResult["buyerList"];
-            let packetDtlMap = pktResult["result"];
-            let attrDisplayDtl = pktResult["attrDisplayDtl"];
-            let buyerListLen = buyerList.length;
-            let tileWisearrayExec = [];
-            //console.log(buyerList)
-            let dbmsDtldata = await coreUtil.getCache("dbms_"+coIdn,cachedUrl);
-            let formatNme = processNme+"_rejected";
-            //console.log(formatNme)
-            for(let k=0;k<buyerListLen;k++){
-                let buyer = buyerList[k];
-                let packetDtl = packetDtlMap[buyer];
-
-                let methodParams = {};
-                methodParams["packetDtl"]=packetDtl;
-                methodParams["source"]=source;
-                methodParams["coIdn"]=coIdn;
-                methodParams["attrDisplayDtl"]=attrDisplayDtl;
-                methodParams["resultView"]=resultView;
-                methodParams["formatNme"]=formatNme;
-                methodParams["buyerYN"]=buyerYN;
-                methodParams["logUsr"]="";
-                methodParams["poolName"]=poolName;
-                tileWisearrayExec.push(function(callback) { execMailSendRejection(methodParams,callback) });
-            }
-
-            async.parallel(tileWisearrayExec,function(err,result){
-                if (err) {
-                    console.log(err);
-                    outJson["result"]=resultFinal;
-                    outJson["status"]="FAIL";
-                    outJson["message"]=err;
-                    callback(null,outJson);
-                }
-                let resultlen=result.length || 0;
-                let totalSucessMail=0;
-                for (let r=0;r<resultlen;r++){
-                    let localresult=result[r].result || {};
-                    totalSucessMail=totalSucessMail+localresult["count"] || 0;
-                }
-
-                outJson["result"]=resultFinal;
-                outJson["status"]="SUCCESS";
-                outJson["message"]="Total Mail Count ="+buyerListLen+" ,Sucess ="+totalSucessMail+" ,Fail ="+(buyerListLen-totalSucessMail);
-                callback(null,outJson);
-            })
-        }else{
-            callback(null,pktResult);
-        }           
-    }else if(processNme == ''){
-        outJson["status"]="FAIL";
-        outJson["message"]="Please Verify Process Name Parameter";
-        callback(null,outJson);
-    }   
 }
 
 exports.saveMFGData = function(req,res,tpoolconn,redirectParam,callback) {
@@ -2738,4 +2580,705 @@ function mailSendSaleSummary(connection,paramJson,callback){
         outJson["message"]="Please Verify Company Idn Parameter";
         callback(null,outJson);
     }   
+}
+
+exports.deleteImage =async function(req,res,tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    var source = redirectParam.source;
+    var cachedUrl = require('qaq-core-util').cachedUrl;
+    var resultFinal={};  
+    var outJson={};
+
+    let resultView = req.body.imageAttrList || [];
+    let from_days = req.body.from_days || '';
+    let to_days = req.body.to_days || '';
+    let resultViewlen = resultView.length;
+    let startTime = new Date();
+   
+    if(resultViewlen > 0 && from_days != '' && to_days != ''){
+        let dbmsDtldata = await coreUtil.getCache("dbms_"+coIdn,cachedUrl);
+        if(dbmsDtldata == null){
+                outJson["result"]=resultFinal;
+                outJson["status"]="FAIL";
+                outJson["message"]="Fail to get DBMS Attribute";
+                callback(null,outJson);
+        } 
+        dbmsDtldata = JSON.parse(dbmsDtldata);
+    
+        let resultViewDtl = {};
+        let basicPathMap = {};
+        for(let k=0;k<resultViewlen;k++){
+            let imageAttr = resultView[k];
+            basicPathMap[imageAttr] = dbmsDtldata[imageAttr];
+            resultViewDtl[imageAttr] = dbmsDtldata[imageAttr+"_path"];
+        }
+
+        let paramJson={};    
+        paramJson["resultView"] = resultView;
+        paramJson["coIdn"] = coIdn;
+        paramJson["source"] = source;
+        paramJson["resultViewDtl"] =resultViewDtl;
+        paramJson["basicPathMap"] = basicPathMap;
+        paramJson["from_days"] = from_days;
+        paramJson["to_days"] = to_days;
+        paramJson["dbmsDtldata"] = dbmsDtldata;
+        let pktResult = await execGetImagePacketDetails(paramJson,tpoolconn);
+        let endTime = new Date();
+        pktResult["startTime"] = startTime;
+        pktResult["endTime"] = endTime;
+        callback(null,pktResult);   
+    }  else if (resultViewlen == 0) {
+        outJson["result"] = resultFinal;
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify imageAttrList Can not be blank!";
+        callback(null, outJson);
+    } else if (from_days == '') {
+        outJson["result"] = resultFinal;
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify from_days Can not be blank!";
+        callback(null, outJson);
+    } else if (to_days == '') {
+        outJson["result"] = resultFinal;
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify to_days Can not be blank!";
+        callback(null, outJson);
+    }    
+}
+
+function execGetImagePacketDetails(paramJson,tpoolconn){
+    return new Promise(function(resolve,reject) {
+        getImagePacketDetails(tpoolconn,paramJson, function (error, result) {
+        if(error){  
+          reject(error);
+         }
+        resolve(result);
+     })
+    })
+}
+
+function getImagePacketDetails(tpoolconn,paramJson,callback) {
+    var resultView = paramJson.resultView;
+    let source = paramJson.source;
+    var coIdn = paramJson.coIdn;
+    let resultViewDtl = paramJson.resultViewDtl;
+    let basicPathMap = paramJson.basicPathMap;
+    let from_days = paramJson.from_days;
+    let to_days = paramJson.to_days;
+    let dbmsDtldata = paramJson.dbmsDtldata;
+    let outJson = {};
+    let fmt = {};
+    let params=[];
+    let list = [];
+    let resultViewlen = resultView.length;
+    let resultViewList = [];
+    let responceList = [];
+
+   // var sql="select sm.pkt_code,sm.stock_idn,sm.status, "+
+   //     "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno ";
+   //     for (let i = 0; i < resultViewlen; i++) {
+   //         let attr = resultView[i];
+   //         sql += ",COALESCE(sm.attr ->> '" + attr + "','') " + attr;
+   //     }    
+   //     sql +=" from stock_m sm,transaction_sales ts,transaction_d_sales td,stock_process sp "+
+   //         "where 1 = 1  "+
+   //         "and sp.process_idn = ts.process_idn and sp.sub_group = 'sale'  "+
+   //         "and sp.co_idn = sm.co_idn "+
+   //         "and ts.transaction_sales_idn = td.transaction_sales_idn "+
+   //         "and td.stock_idn = sm.stock_idn "+
+   //         "and sm.co_idn = $1 and sp.stt = 1 and td.status = 'CF' "+
+   //         "and td.created_ts::date between current_date - "+to_days+" and current_date - "+from_days+" ";
+   //         for (let i = 0; i < resultViewlen; i++) {
+   //             let attr = resultView[i];
+   //             sql += " and sm.attr ->>  '" + attr + "' <> 'N' ";
+   //         }
+   //         sql +=" limit 1 "; 
+   
+   let sql = "select sm.pkt_code,sm.stock_idn,sm.status, "+
+        "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno ";
+        for (let i = 0; i < resultViewlen; i++) {
+            let attr = resultView[i];
+            sql += ",COALESCE(sm.attr ->> '" + attr + "','N') " + attr;
+        }
+    sql += " from stock_m sm "+
+        "where 1 = 1 and stock_type = 'NR' "+ 
+        " and status in ('MKSD','BRC_MKSD') and sm.co_idn = $1 and sm.stt = 1 "+
+        "and cast(sm.attr ->> 'sal_dte' as int) between "+
+        "cast(to_char(current_date - "+to_days+",'yyyymmdd') as int) "+
+        "and cast(to_char(current_date-"+from_days+",'yyyymmdd') as int) ";
+        for (let i = 0; i < resultViewlen; i++) {
+            let attr = resultView[i];
+            if(i==0)
+                sql += " and (coalesce(sm.attr ->>  '" + attr + "', 'N') not in ('', 'N') ";
+            else 
+                sql += " OR coalesce(sm.attr ->>  '" + attr + "', 'N') not in ('', 'N') ";
+         }
+         sql +=" )";
+
+         //sql +=" limit 1 ";
+
+    params.push(coIdn);
+    
+    //console.log(sql);
+    //console.log(params);
+    coreDB.executeTransSql(tpoolconn,sql,params,fmt,async function(error,result){
+        if(error){
+            console.log(error);
+            outJson["status"]="FAIL";
+            outJson["message"]="Error In getImagePacketDetails Method!"+error.message;
+            console.log(outJson);
+            callback(null,outJson);
+        }else{
+            var len=result.rows.length;
+            //console.log(len);
+            if(len>0){
+                for(let k=0;k<len;k++){
+                    let resultRows = result.rows[k];
+                    let map = {};
+                    let imageMap = {};
+                    let responceMap = {};
+                    responceMap["pkt_code"] = resultRows.pkt_code;
+                    map["pkt_code"] = resultRows.pkt_code;
+                    map["stock_idn"] = resultRows.stock_idn;
+                    map["status"] = resultRows.status;
+                    let vnm = resultRows.vnm;
+                    let certno = resultRows.certno;
+                    let stock_idn = resultRows.stock_idn;
+                    let resultViewMap = {};
+                    for (let j = 0; j < resultViewlen; j++) {
+                        let attr = resultView[j];
+                        let attrVal = resultRows[attr] || '';
+                        if(attrVal != '' && attrVal != 'N' && attrVal != null){
+                            let imageUrlVal = resultViewDtl[attr];
+                            imageUrlVal = replaceall("vnm", vnm, imageUrlVal);
+                            imageUrlVal = replaceall("cert_no", certno, imageUrlVal);
+                            imageMap[attr] = imageUrlVal;
+                            let folderName = vnm+"/"
+                            let s3url = dbmsDtldata.s3url;
+                            let fileResult = {};
+                            if(imageUrlVal.indexOf(folderName) > -1){
+                                let folderpath = basicPathMap[attr];
+                                folderpath = replaceall(s3url,"",folderpath);
+                                folderpath = replaceall("/","",folderpath);
+                                //folderName = replaceall("/","",folderName);
+                                folderpath = folderpath +"/"+folderName;
+                                let methodParam = {};
+                                methodParam["folderName"] = folderpath;
+                                methodParam["dbmsDtldata"] = dbmsDtldata;
+                                fileResult = await execDeleteFolder(methodParam);
+                            } else {
+                                imageUrlVal = replaceall(s3url, "", imageUrlVal);
+                                let methodParam = {};
+                                methodParam["imageUrl"] = imageUrlVal;
+                                methodParam["dbmsDtldata"] = dbmsDtldata;
+                                fileResult = await execDeleteFile(methodParam);
+                            }
+                            
+    
+                            imageUrlVal = replaceall(basicPathMap[attr], "", imageUrlVal);                        
+                            //console.log(fileResult.status,"fileResult",fileResult.message);
+                            //console.log("imageUrlVal",imageUrlVal);
+                            responceMap[attr+"_count"] = 0;
+                            if(fileResult.status == 'SUCCESS'){
+                                resultViewMap[attr] = 'N';
+                                responceMap[attr+"_count"] = fileResult.result || 0;
+                            } else {
+                                resultViewMap[attr] = imageUrlVal;
+                            }
+                            map[attr] = attrVal; 
+                        }                      
+                    }
+                    var resultViewMapKeys=Object.keys(resultViewMap) || [];
+                    var resultViewMapKeyslen=resultViewMapKeys.length;
+                    //console.log("resultViewMapKeys",resultViewMapKeys);
+                    if(resultViewMapKeyslen > 0){
+                        let methodParamLocal = {};
+                        methodParamLocal["resultViewMap"] = resultViewMap;
+                        methodParamLocal["coIdn"] = coIdn;
+                        methodParamLocal["stock_idn"] = stock_idn;
+                        let stockResult = await execUpdateStockM(methodParamLocal,tpoolconn);
+
+                    }
+                    list.push(map);
+                    resultViewList.push(imageMap);
+                    responceList.push(responceMap);
+                }
+
+                //outJson["resultViewList"]=resultViewList;
+                //outJson["result"]=list;
+                outJson["result"]=responceList;
+                outJson["status"]="SUCCESS";
+                outJson["message"]="SUCCESS";
+                callback(null,outJson);
+            }else{
+                outJson["status"] = "FAIL";
+                outJson["message"] = "Sorry no result found";
+                callback(null,outJson);
+            }
+        }
+    });     
+}
+
+function execDeleteFile(methodParam) {
+    return new Promise(function (resolve, reject) {
+        deleteFile(methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function deleteFile(redirectParam, callback){
+    let imageUrl = redirectParam.imageUrl;
+    let dbmsDtldata = redirectParam.dbmsDtldata;
+    let outJson = {};
+    
+    let params = {};
+    params["accessKeyId"]=dbmsDtldata.s3key;
+    params["secretAccessKey"]=dbmsDtldata.s3val;
+    AWS.config.update(params);
+    let s3 = new AWS.S3();
+
+    var param = {
+        Bucket: "ecweb01",
+        Delete: { // required
+            Objects: [ // required
+              {
+                Key: imageUrl// required
+              }
+            ],
+          },
+      };
+
+    s3.deleteObject(param,function (err,data){
+        if(err){
+            console.log("FAIL");
+            outJson["status"] = "FAIL";
+            outJson["message"] = "File deletion failed";
+            callback(null, outJson);
+        } else {
+            //console.log("SUCCESS");
+            let length = data.Deleted.length || 0;
+            outJson["count"] = length;
+            outJson["status"] = "SUCCESS";
+            outJson["message"] = "File deleted successfully";
+            callback(null, outJson);
+        }
+    })
+}
+
+function execDeleteFolder(methodParam) {
+    return new Promise(function (resolve, reject) {
+        deleteFolder(methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function deleteFolder(redirectParam, callback){
+    let folderName = redirectParam.folderName;
+    let dbmsDtldata = redirectParam.dbmsDtldata;
+    let outJson = {};
+    //console.log("folderName",folderName)
+
+    let param = {};
+    param["accessKeyId"]=dbmsDtldata.s3key;
+    param["secretAccessKey"]=dbmsDtldata.s3val;
+    //param["region"]="ap-southeast-1";
+    AWS.config.update(param);
+    let s3 = new AWS.S3();
+
+      //console.log("s3",s3);
+    var params = {
+        Bucket: "ecweb01",
+        Prefix:folderName
+    }
+   
+    s3.listObjects(params, function(err, data) {
+        if (err) {
+            console.log("Folder error",err);
+            outJson["status"] = "FAIL";
+            outJson["message"] = "Folder error";
+            callback(null, outJson);
+        }
+
+        if (data.Contents.length == 0){
+            //console.log("Folder not found");
+            outJson["status"] = "SUCCESS";
+            outJson["message"] = "Folder not found";
+            callback(null, outJson);
+        } else {
+            params = {};
+            params = {Bucket:  "ecweb01"};
+            params.Delete = {Objects:[]};
+        
+            data.Contents.forEach(function(content) {
+                //console.log("Key",content.Key);
+                params.Delete.Objects.push({Key: content.Key});
+            });
+
+            s3.deleteObjects(params, function(err, data) {
+                if (err) {
+                console.log("Folder deletion failed",err);
+                outJson["status"] = "FAIL";
+                outJson["message"] = "Folder deletion failed";
+                callback(null, outJson);
+                }
+                //console.log(data.Deleted.length);
+                if(data.Deleted.length > 0){
+                    console.log("Folder deleted successfully");
+                    outJson["result"] = data.Deleted.length;
+                    outJson["status"] = "SUCCESS";
+                    outJson["message"] = "Folder deleted successfully";
+                    callback(null, outJson);
+                }
+                else {
+                    console.log("Folder deletion Fail");
+                    outJson["status"] = "SUCCESS";
+                    outJson["message"] = "Folder deletion Fail";
+                    callback(null, outJson);
+                }
+            });
+        } 
+    });
+}
+
+exports.checkImagesExistOfTrfDte =async function(req,res,tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    var source = redirectParam.source;
+    var cachedUrl = require('qaq-core-util').cachedUrl;
+    let poolName = redirectParam.poolName;
+    var resultFinal={};  
+    var outJson={};
+
+    let resultView = req.body.imageAttrList || [];
+    let days = req.body.days || '';
+    let type = req.body.type || 'trfDate';
+    let biGroupList = req.body.biGroupList || [];
+    let resultViewlen = resultView.length;
+   
+    if(resultViewlen > 0 && days != ''){
+        let dbmsDtldata = await coreUtil.getCache("dbms_"+coIdn,cachedUrl);
+        if(dbmsDtldata == null){
+                outJson["result"]=resultFinal;
+                outJson["status"]="FAIL";
+                outJson["message"]="Fail to get DBMS Attribute";
+                callback(null,outJson);
+        } 
+        dbmsDtldata = JSON.parse(dbmsDtldata);
+    
+        let resultViewDtl = {};
+        let basicPathMap = {};
+        for(let k=0;k<resultViewlen;k++){
+            let imageAttr = resultView[k];
+            basicPathMap[imageAttr] = dbmsDtldata[imageAttr];
+            resultViewDtl[imageAttr] = dbmsDtldata[imageAttr+"_path"] || '';
+        }
+
+        let paramJson={};    
+        paramJson["resultView"] = resultView;
+        paramJson["coIdn"] = coIdn;
+        paramJson["source"] = source;
+        paramJson["resultViewDtl"] =resultViewDtl;
+        paramJson["basicPathMap"] = basicPathMap;
+        paramJson["days"] = days;
+        paramJson["poolName"] = poolName;
+        paramJson["biGroupList"] = biGroupList;
+        paramJson["type"] = type;
+        let pktResult = execGetPacketDetails(paramJson);
+        outJson["result"] = resultFinal;
+        outJson["status"] = "SUCCESS";
+        outJson["message"] = "SUCCESS";
+        callback(null, outJson);
+        //if(pktResult.status == 'SUCCESS'){
+        //    let packetDetails = pktResult["result"] || [];
+        //    let resultViewList = pktResult["resultViewList"] || [];      
+        //    callback(null,pktResult);   
+        //} else {
+        //    callback(null,pktResult);
+        //}   
+    }  else if (resultViewlen == 0) {
+        outJson["result"] = resultFinal;
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify imageAttrList Can not be blank!";
+        callback(null, outJson);
+    } else if (days == '') {
+        outJson["result"] = resultFinal;
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify days Can not be blank!";
+        callback(null, outJson);
+    }    
+}
+
+function execGetPacketDetails(paramJson){
+    return new Promise(function(resolve,reject) {
+        getPacketDetails(paramJson, function (error, result) {
+        if(error){  
+          reject(error);
+         }
+        resolve(result);
+     })
+    })
+}
+
+function getPacketDetails(paramJson,callback) {
+    var resultView = paramJson.resultView;
+    let source = paramJson.source;
+    var coIdn = paramJson.coIdn;
+    let resultViewDtl = paramJson.resultViewDtl || {};
+    let basicPathMap = paramJson.basicPathMap;
+    let days = paramJson.days || '0';
+    let poolName = paramJson.poolName;
+    let biGroupList = paramJson.biGroupList || [];
+    let type = paramJson.type;
+    let outJson = {};
+    let fmt = {};
+    let params=[];
+    let list = [];
+    var date = new Date();
+    date.setDate(date.getDate() - parseInt(days));
+    let resultViewlen = resultView.length;
+    let resultViewList = [];
+    let conQ = "";
+    let whereQ = "";
+    var poolsList= require('qaq-core-db').poolsList;
+    var pool = poolsList[poolName] || 'TPOOL';
+    if(pool !=''){
+        coreDB.getTransPoolConnect(pool, function(error,tpoolconn){
+            if(error){
+                console.log(error);
+                outJson["result"]='';
+                outJson["status"]="FAIL";
+                outJson["message"]="Fail To Get Conection!";
+                callback(null,outJson);
+            }else{
+                for (let i = 0; i < resultViewlen; i++) {
+                    let attr = resultView[i];
+                    if (attr == 'crtwt')
+                        conQ += ", trunc(CAST(sm.attr ->> 'crtwt' as Numeric),2)  " + attr;
+                    else
+                        conQ += ",COALESCE(sm.attr ->> '" + attr + "','') " + attr;
+
+                    if(whereQ == "")
+                        whereQ += " and (COALESCE(sm.attr ->> '" + attr + "','N') = 'N' ";
+                    else
+                        whereQ += " OR COALESCE(sm.attr ->> '" + attr + "','N') = 'N' ";
+                }    
+
+                whereQ += " )";
+
+                var sql="";
+                if(type == 'trfDate'){
+                    sql = "select pkt_idn,stock_idn,sm.status,CAST(sm.attr->>'trf_dte' AS DATE) trf_dte, "+
+                        "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno "+ conQ +
+                        " from stock_m sm,stock_status ss "+
+                        "where sm.status = ss.status and sm.co_idn=$1 "+
+                        " and sm.stt=1 and sm.stock_type='NR' "+
+                        " and ss.stt=1 and ss.co_idn=$2 and "+
+                        " ss.bi_group in ('cs', 'mkt','lab')   "+ 
+                        "and CASE WHEN LENGTH(sm.attr ->> 'trf_dte') <> 8 then "+
+                        "cast(to_char(current_date, 'YYYYMMDD') as int) "+
+                        "else cast(sm.attr ->> 'trf_dte' as INT) end "+ 
+                        //" and CAST(COALESCE(NULLIF(sm.attr ->> 'trf_dte', ''), '0') AS INT) \n" + 
+                        " between "+dateFormat(date,'yyyymmdd')+" and "+dateFormat(new Date(),'yyyymmdd')+"\n" +  whereQ +
+                        "Union "+
+                        "select pkt_idn,stock_idn,sm.status,CAST(sm.attr->>'trf_dte' AS DATE) trf_dte, "+
+                        "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno "+ conQ +
+                        " from stock_m sm,stock_status ss "+
+                        "where sm.status = ss.status and sm.co_idn=$3 "+
+                        " and sm.stt=1 and sm.stock_type='NR' "+
+                        " and ss.stt=1 and ss.co_idn=$4  "+ whereQ +
+                        //"and  ss.bi_group not in ('sold', 'mkt','cs', 'mix', 'na') "+
+                        "and  ss.bi_group in ('pri') "+
+                        "and ss.status not in ('MX_AV','PCHK','PLAN_CHK','PROINV','MKSL1') ";   
+
+                    params.push(coIdn);
+                    params.push(coIdn);
+                    params.push(coIdn);
+                    params.push(coIdn);
+                } else {
+                    sql = "select pkt_idn,stock_idn,sm.status,CAST(sm.attr->>'recpt_dt' AS DATE) trf_dte, "+
+                        "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno "+ conQ +
+                        " from stock_m sm,stock_status ss "+
+                        "where sm.status = ss.status and sm.co_idn=$1 "+
+                        " and sm.stt=1 and sm.stock_type='NR' "+
+                        " and ss.stt=1 and ss.co_idn=$2 and "+
+                        " ss.bi_group in ('" + biGroupList.join("','") + "')   "+ 
+                        "and CASE WHEN LENGTH(sm.attr ->> 'recpt_dt') <> 8 then "+
+                        "cast(to_char(current_date, 'YYYYMMDD') as int) "+
+                        "else cast(sm.attr ->> 'recpt_dt' as INT) end "+ 
+                        //" and CAST(COALESCE(NULLIF(sm.attr ->> 'trf_dte', ''), '0') AS INT) \n" + 
+                        " between "+dateFormat(date,'yyyymmdd')+" and "+dateFormat(new Date(),'yyyymmdd')+"\n" +  whereQ ;
+                        params.push(coIdn);
+                        params.push(coIdn);
+                }
+                
+                
+                //console.log(sql);
+                //console.log(params);
+                coreDB.executeTransSql(tpoolconn,sql,params,fmt,async function(error,result){
+                    if(error){
+                        coreDB.doTransRelease(tpoolconn);
+                        console.log(error);
+                        outJson["status"]="FAIL";
+                        outJson["message"]="Error In getPacketDetails Method!"+error.message;
+                        console.log(outJson);
+                        callback(null,outJson);
+                    }else{
+                        var len=result.rows.length;
+                        //console.log("len",len);
+                        if(len>0){
+                            for(let k=0;k<len;k++){
+                                let resultRows = result.rows[k];
+                                let map = {};
+                                let imageMap = {};
+                                map["pkt_idn"] = resultRows.pkt_idn;
+                                map["stock_idn"] = resultRows.stock_idn;
+                                map["status"] = resultRows.status;
+                                map["trf_dte"] = resultRows.trf_dte;
+                                let vnm = resultRows.vnm || '';
+                                //console.log("vnm",vnm);
+                                let certno = resultRows.certno || '';
+                                let stock_idn = resultRows.stock_idn;
+                                let resultViewMap = {};
+                                for (let j = 0; j < resultViewlen; j++) {
+                                    let attr = resultView[j];
+                                    let attrVal = resultRows[attr];
+                                    let imageUrlVal = resultViewDtl[attr] || '';
+                                    if(imageUrlVal != ''){
+                                        imageUrlVal = replaceall("vnm", vnm, imageUrlVal);
+                                        imageUrlVal = replaceall("cert_no", certno, imageUrlVal);
+                                    }
+                                    
+                                    imageMap[attr] = imageUrlVal;
+                                    //console.log(imageUrlVal);
+                                    let methodParam = {};
+                                    methodParam["imageUrl"] = imageUrlVal;
+                                    let imageResult = await execCheckImageExist(methodParam);
+                                    imageUrlVal = replaceall(basicPathMap[attr], "", imageUrlVal);                        
+                                    //console.log("attr",attr);
+                                    //console.log("imageUrlVal",imageUrlVal);
+                                    if(imageResult.status == 'SUCCESS'){
+                                        resultViewMap[attr] = imageUrlVal;
+                                    } else {
+                                        resultViewMap[attr] = 'N';
+                                    }
+                                    map[attr] = attrVal;                        
+                                }
+                                var resultViewMapKeys=Object.keys(resultViewMap) || [];
+                                var resultViewMapKeyslen=resultViewMapKeys.length;
+                                //console.log("resultViewMapKeys",resultViewMapKeyslen);
+                                if(resultViewMapKeyslen > 0){
+                                    let methodParamLocal = {};
+                                    methodParamLocal["resultViewMap"] = resultViewMap;
+                                    methodParamLocal["coIdn"] = coIdn;
+                                    methodParamLocal["stock_idn"] = stock_idn;
+                                    let stockResult = await execUpdateStockM(methodParamLocal,tpoolconn);
+
+                                }
+                                list.push(map);
+                                resultViewList.push(imageMap);
+                            }
+                            //console.log(resultViewList);
+                            //outJson["resultViewList"]=resultViewList;
+                            //outJson["result"]=list;
+                            coreDB.doTransRelease(tpoolconn);
+                            outJson["status"]="SUCCESS";
+                            outJson["message"]="SUCCESS";
+                            callback(null,outJson);
+                        }else{
+                            coreDB.doTransRelease(tpoolconn);
+                            outJson["status"] = "FAIL";
+                            outJson["message"] = "Sorry no result found";
+                            callback(null,outJson);
+                        }
+                    }
+                }); 
+            }
+        })
+    }else{
+        outJson["result"]='';
+        outJson["status"]="FAIL";
+        outJson["message"]="Please Verify Pool from PoolList can not be blank!";
+        callback(null,outJson);
+    }    
+}
+
+function execCheckImageExist(methodParam) {
+    return new Promise(function (resolve, reject) {
+        checkImageExist(methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function checkImageExist(redirectParam, callback){
+    let imageUrl = redirectParam.imageUrl;
+    let outJson = {};
+    
+    urlExists(imageUrl, function(err, exists) {
+        if(!exists){
+            //console.log("not exist");
+            outJson["status"] = "FAIL";
+            outJson["message"] = "Image not exist";
+            callback(null, outJson);
+        } else {
+            //console.log("exist");
+            outJson["status"] = "SUCCESS";
+            outJson["message"] = "Image is exist";
+            callback(null, outJson);
+        }
+    });
+}
+
+function execUpdateStockM(methodParam ,tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        updateStockM(methodParam,tpoolconn, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function updateStockM(methodParam, tpoolconn, callback) {
+    var resultViewMap = methodParam.resultViewMap;
+    var coIdn = methodParam.coIdn;
+    var updateStock = "";
+    var stock_idn = methodParam.stock_idn;
+    var outJson = {};
+    var resultFinal = {};
+
+    updateStock = "update stock_m set attr = attr || concat('" + JSON.stringify(resultViewMap) + "')::jsonb "+
+        ",modified_ts=current_timestamp   where stock_idn = $1 and co_idn=$2 ";
+
+    var params = [];
+    params.push(stock_idn);
+    params.push(coIdn);
+    var fmt = {};
+    //console.log(updateStock)
+    //console.log(params)
+    coreDB.executeTransSql(tpoolconn, updateStock, params, fmt, function (error, result) {
+        if (error) {
+            coreDB.doTransRollBack(tpoolconn);
+            outJson["status"] = "FAIL";
+            outJson["message"] = "Fail To Update stock_m!" + error.message;
+            outJson["result"] = resultFinal;
+            callback(null, outJson);
+        } else {
+            coreDB.doTransCommit(tpoolconn);
+            outJson["status"] = "SUCCESS";
+            outJson["message"] = "SUCCESS";
+            outJson["result"] = resultFinal;
+            callback(null, outJson);
+        }
+    });
 }
