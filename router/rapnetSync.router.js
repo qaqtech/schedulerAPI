@@ -5,6 +5,6 @@ var schedule = require('../redirect/schedule.redirect');
 
 router.post('/load', redirect.load);
 router.post('/schedule', schedule.schedule);
-router.post('/api', schedule.scheduleApi);
+router.post('/scheduleApi', schedule.scheduleApi);
 
 module.exports = router;
