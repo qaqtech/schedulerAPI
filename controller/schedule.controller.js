@@ -1891,26 +1891,24 @@ exports.sendSaleDataMails = function(req,res,tpoolconn,redirectParam,callback) {
     let poolName = redirectParam.poolName;  
     var outJson={};
 
-    let reportType = req.body.reportType || 'Daily';
+    let days = req.body.days || 0;
+    let reportType = "Daily";
     let d=new Date();
     let todate = dateFormat(d,'dd-mm-yyyy');
     let date = new Date();
-    date.setDate(date.getDate() - 7);
+    date.setDate(date.getDate() - days);
     let weekdate = dateFormat(date,'dd-mm-yyyy');  
-    let fromDte = '';
-    let toDte = '';
+    let fromDte = weekdate;
+    let toDte = todate;
     let mailDate = '';
-    if(reportType == 'Daily'){
-        fromDte = todate;
-        toDte = todate;
+    if(days == 0){ 
         mailDate = todate;
     } 
-    if(reportType == 'Weekly'){
-        fromDte = weekdate;
-        toDte = todate;
+    if(days == 7){
         mailDate = fromDte+" To "+toDte;
+        reportType = "Weekly";
     } 
-   
+    
 
     let methodParam = {};
     methodParam["coIdn"] = coIdn;
@@ -2224,7 +2222,7 @@ async function getDeliveryDtl( tpoolconn, redirectParam, callback) {
                     
                 }
                 var sql = "select sum(tds.qty) qty \n"+
-                ", trunc(sum(trunc(tds.weight + CAST(COALESCE(NULLIF(tds.issval ->> 'wt_diff', ''), '0') AS numeric),3) * (COALESCE(tds.sal_rte,tds.quot) * CAST(coalesce(ts.transaction_attr->> 'exh_rte','1') as numeric)))/1000,2) vlu \n"+
+                ", trunc(sum(trunc(tds.weight + CAST(COALESCE(NULLIF(tds.issval ->> 'wt_diff', ''), '0') AS numeric),3) * (COALESCE(tds.sal_rte,tds.quot) /COALESCE(tds.sal_exh_rte, tds.quot_exh_rte)))/1000,2) vlu \n"+
                 ", trunc(sum(tds.weight + CAST(COALESCE(NULLIF(tds.issval ->> 'wt_diff', ''), '0') AS numeric)),3) crtwt  \n"+
                 "from transaction_sales ts,transaction_d_sales tds,stock_m sm,stock_process sp \n"+
                 "where ts.transaction_sales_idn = tds.transaction_sales_idn and tds.stock_idn = sm.stock_idn \n"+
