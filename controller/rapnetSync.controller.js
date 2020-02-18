@@ -6,6 +6,7 @@ const Json2csvParser = require('json2csv').Parser;
 const fs = require('fs');
 var dateFormat = require('dateformat');
 let async = require("async");
+const soapRequest = require('easy-soap-request');
 
 exports.rapnetPacketDelete =async function (req, res, connection, redirectParam, callback) {
     var formNme = req.body.formNme || '';
@@ -30,6 +31,7 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
             let resultViewlen = resultView.length;
 
             let packetDtlList = [];
+            let pktIdnList = [];
             // console.log(packetDetails.length);
             for(let i=0;i<packetDetails.length;i++){
                 let pktdtl = packetDetails[i] || [];
@@ -38,6 +40,8 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                     let attr = resultView[j];
                     let attrVal = pktdtl[j] || '';
                     packetDtl[attr] = attrVal;
+                    if(attr == 'Stock #')
+                        pktIdnList.push(attrVal);
                 }
                 packetDtlList.push(packetDtl);
             }
@@ -53,54 +57,57 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                 usernamelist = JSON.parse(usernamelist);
                 let passwordlist = fileOptionDtl["password"] || [];
                 passwordlist = JSON.parse(passwordlist);
-                let filePath  = 'files/'+filename+'.csv';
-                console.log("packetDtlList length ",packetDtlList.length);
-                //console.log("usernamelist",usernamelist);
-                if(packetDtlList.length > 0){
-                    if(fileExtension == 'csv'){
-                        const json2csvParser = new Json2csvParser({ resultView });
-                        const csv = json2csvParser.parse(packetDtlList);
-                        fs.writeFile(filePath, csv,async function(err) {
-                            if (err) {
-                            console.log("error",err)
-                            outJson["result"]=resultFinal;
-                            outJson["status"]="FAIL";
-                            outJson["message"]="CSV Download Fail";
-                            callback(null,outJson);
-                            } else {
-                                //console.log("usernamelist",usernamelist.length);
-                                for (let i = 0; i < usernamelist.length; i++) {
-                                    let username = usernamelist[i];
-                                    let password = passwordlist[i];
-                                    let methodParamLocal = {};
-                                    methodParamLocal["username"] = username;
-                                    methodParamLocal["password"] = password;
-                                    methodParamLocal["filePath"] = filePath;
-                                    methodParamLocal["filename"] = filename;
-                                    methodParamLocal["fileExtension"] = fileExtension;
-                                    //console.log(methodParamLocal);
-                                    deleteFileUpload(methodParamLocal);
-                                }
 
-                                methodParam = {};
-                                methodParam["resultView"]=resultView;
-                                methodParam["coIdn"] = coIdn;
-                                methodParam["empidn"]="1";
-                                methodParam["formatNme"] = 'rapnet_delete';
-                                methodParam["pktDetails"]=packetDtlList;
-                                methodParam["buyerYN"]="No";
-                                methodParam["byridn"]="1";
-                                methodParam["packetDisplayCnt"]=10;
-                                methodParam["usernamelist"] = usernamelist;
-                                let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
-                                console.log("mailResult",mailResult);
-                                outJson["result"] = resultFinal;
-                                outJson["status"] = "SUCCESS";
-                                outJson["message"] = "SUCCESS";
-                                callback(null, outJson);
-                            }
-                        });
+                //console.log("packetDtlList length ",packetDtlList.length);
+                //console.log("usernamelist",usernamelist);
+                if(pktIdnList.length > 0){
+                    //console.log("usernamelist",usernamelist.length);
+                    let tokenList = [];
+                    for (let i = 0; i < usernamelist.length; i++) {
+                        let username = usernamelist[i];
+                        let password = passwordlist[i];
+                        let methodParamLocal = {};
+                        methodParamLocal["username"] = username;
+                        methodParamLocal["password"] = password;
+                        let tokenResult = await execGetToken(methodParamLocal);
+                        if(tokenResult.status == 'SUCCESS'){
+                            let token = tokenResult.result || '';
+                            if(token != '')
+                                tokenList.push(token);
+                        }
                     }
+
+                    for (let i = 0; i < pktIdnList.length; i++) {
+                        let pktIdn = pktIdnList[i];
+                        for (let j = 0; j < tokenList.length; j++) {
+                            let ticket = tokenList[j];
+                            let methodParamLocal = {};
+                            methodParamLocal["pktIdn"] = pktIdn;
+                            methodParamLocal["ticket"] = ticket;
+                            let pktResult = execDeletePackets(methodParamLocal);
+
+                        }
+                    }
+
+
+
+                    methodParam = {};
+                    methodParam["resultView"]=resultView;
+                    methodParam["coIdn"] = coIdn;
+                    methodParam["empidn"]="1";
+                    methodParam["formatNme"] = 'rapnet_delete';
+                    methodParam["pktDetails"]=packetDtlList;
+                    methodParam["buyerYN"]="No";
+                    methodParam["byridn"]="1";
+                    methodParam["packetDisplayCnt"]=10;
+                    methodParam["usernamelist"] = usernamelist;
+                    let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
+                    console.log("mailResult",mailResult);
+                    outJson["result"] = resultFinal;
+                    outJson["status"] = "SUCCESS";
+                    outJson["message"] = "SUCCESS";
+                    callback(null, outJson);
+                            
                 } else {
                     outJson["result"] = resultFinal;
                     outJson["status"] = "FAIL";
@@ -121,46 +128,57 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
     }
 }
 
-async function deleteFileUpload(paramJson){
-    let filePath = paramJson.filePath || '';
-    let username = paramJson.username || '';
-    let password = paramJson.password || '';
-    let filename = paramJson.filename || '';
-    let fileExtension = paramJson.fileExtension || '';
+function execDeletePackets(methodParam){
+    return new Promise(function(resolve,reject) {
+        deletePackets(methodParam, function (error, result) {
+            if(error){  
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+async function deletePackets(paramJson){
+    let pktIdn = paramJson.pktIdn || '';
+    let ticket = paramJson.ticket || '';
     let outJson = {};
     let resultFinal = {};
-    console.log("paramJson",paramJson);
+    //console.log("paramJson",paramJson);
   
-    if(filePath != '' && filename != '' && fileExtension != ''){
-        let methodParam = {};
-        methodParam["username"] = username;
-        methodParam["password"] = password;
-        let tokenResult = await execGetToken(methodParam);
-        if(tokenResult.status == 'SUCCESS'){  
-            let token = tokenResult.result;
-          
-            let uploadPath = "http://technet.rapaport.com/HTTP/Upload/Upload.aspx?Method=file&ReplaceAll=false&ticket=" + token;
-            //console.log("uploadPath",uploadPath);
-            var options = {
-                url: uploadPath,
-                headers: { 'Content-Type': 'multipart/form-data'},
-                formData: {
-                    file: fs.createReadStream(filePath),
-                    filetype: fileExtension,
-                    filename: filename,
-                    title: 'deletePackets',
-                }
+    if(pktIdn != '' && ticket != ''){
+        const url = 'https://technet.rapaport.com/webservices/Upload/DiamondManager.asmx';
+
+        const deleteheaders = {
+            'user-agent': 'sampleTest',
+            'Content-Type': 'text/xml;charset=UTF-8',
+            'soapAction': 'http://technet.rapaport.com/DeleteLots',
             };
-            //console.log("filePath",filePath)
-            request.post(options, function(error, response, body) {
-                console.log("uploadFileResponse"+response.statusCode); 
-                console.log("error"+error); 
-                if (error) {
-                    console.error('upload failed:', error);
-                }
-                console.log('Server responded with:', body);
-            })
-        } 
+    
+        const deletexml = '<?xml version="1.0" encoding="utf-8"?> '+
+                    '<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"> '+
+                    '<soap:Header> '+
+                    '<AuthenticationTicketHeader xmlns="http://technet.rapaport.com/"> '+
+                    '<Ticket>'+ticket+'</Ticket> '+
+                    '</AuthenticationTicketHeader> '+
+                    '</soap:Header> '+
+                    '<soap:Body> '+
+                    '<DeleteLots xmlns="http://technet.rapaport.com/"> '+
+                    '<Parameters> '+
+                    '<ByField>StockNum</ByField> '+
+                    '<FieldValueList>'+pktIdn+'</FieldValueList> '+
+                    '</Parameters> '+
+                    '</DeleteLots> '+
+                    '</soap:Body> '+
+                    '</soap:Envelope>'; 
+
+        (async () => {
+            const { response } = await soapRequest(url, deleteheaders, deletexml, 7000); // Optional timeout parameter(milliseconds)
+            const { body, statusCode } = response;
+            console.log("deletebody",body);
+            console.log("deleteStatus",statusCode);
+
+        })();
     }
 }
 
@@ -183,33 +201,44 @@ function getToken(paramJson,callback){
     //console.log("username",username);
     //console.log("password",password);
     if(username != '' && password != ''){
-        var headers = {
-        'Content-Type': 'application/x-www-form-urlencoded'
-        }
-    
-        var options = {
-            url: 'https://technet.rapaport.com/HTTP/Authenticate.aspx',
-            method: 'POST',
-            headers: headers,
-            form: {Username:username,Password:password}
-        };
-        request(options,function (error, response, body) { 
-            if (!error && response.statusCode == 200) {
-                //console.log("response"+response.statusCode); 
-                //console.log("Token"+body);
-                let token = body;
+        const url = 'https://technet.rapaport.com/webservices/Upload/DiamondManager.asmx';
+        const headers = {
+            'user-agent': 'sampleTest',
+            'Content-Type': 'text/xml;charset=UTF-8',
+            'soapAction': 'http://technet.rapaport.com/Login',
+            };
+        const xml = '<?xml version="1.0" encoding="utf-8"?> '+
+            '<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"> '+
+            '<soap:Body> '+
+            '<Login xmlns="http://technet.rapaport.com/"> '+
+            '<Username>'+username+'</Username> '+
+            '<Password>'+password+'</Password> '+
+            '</Login> '+
+            '</soap:Body> '+
+            '</soap:Envelope>';
+            
+        (async () => {
+            const { response } = await soapRequest(url, headers, xml, 7000); // Optional timeout parameter(milliseconds)
+            const { body, statusCode } = response;
+            //console.log(body);
+            console.log("loginStatus",statusCode);
+            if(statusCode == 200){
+                let arr = body.split("<Ticket>");
+                let arr2 = arr[1] || '';
+                let arr3 = arr2.split("</Ticket>"); 
+                let ticket = arr3[0];
+                //console.log("ticket",arr3[0]);
 
-                outJson["result"]=token;
+                outJson["result"]=ticket;
                 outJson["message"]="SUCCESS";
                 outJson["status"]="SUCCESS";
                 callback(null,outJson);  
             }else{
-                console.log(error);
-                outJson["message"]=error;
+                outJson["message"]=body;
                 outJson["status"]="FAIL";
                 callback(null,outJson);   
             }
-        });   
+        })();
     } else if(username == ''){
             outJson["result"]='';
             outJson["status"]="FAIL";
