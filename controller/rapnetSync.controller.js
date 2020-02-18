@@ -139,7 +139,7 @@ function execDeletePackets(methodParam){
     });
 }
 
-async function deletePackets(paramJson){
+async function deletePackets(paramJson,callback){
     let pktIdn = paramJson.pktIdn || '';
     let ticket = paramJson.ticket || '';
     let outJson = {};
@@ -177,6 +177,22 @@ async function deletePackets(paramJson){
             const { body, statusCode } = response;
             console.log("deletebody",body);
             console.log("deleteStatus",statusCode);
+            if(statusCode == 200){
+                let arr = body.split("<Ticket>");
+                let arr2 = arr[1] || '';
+                let arr3 = arr2.split("</Ticket>"); 
+                let ticket = arr3[0];
+                //console.log("ticket",arr3[0]);
+
+                outJson["result"]=ticket;
+                outJson["message"]="SUCCESS";
+                outJson["status"]="SUCCESS";
+                callback(null,outJson);  
+            }else{
+                outJson["message"]=body;
+                outJson["status"]="FAIL";
+                callback(null,outJson);   
+            }
 
         })();
     }
