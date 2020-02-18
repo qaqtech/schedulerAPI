@@ -60,7 +60,7 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
 
                 //console.log("packetDtlList length ",packetDtlList.length);
                 //console.log("usernamelist",usernamelist);
-                if(pktIdnList.length > 0){
+               
                     //console.log("usernamelist",usernamelist.length);
                     let tokenList = [];
                     for (let i = 0; i < usernamelist.length; i++) {
@@ -76,7 +76,7 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                                 tokenList.push(token);
                         }
                     }
-
+                    if(pktIdnList.length > 0){
                     for (let i = 0; i < pktIdnList.length; i++) {
                         let pktIdn = pktIdnList[i];
                         for (let j = 0; j < tokenList.length; j++) {
