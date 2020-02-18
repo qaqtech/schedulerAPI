@@ -139,7 +139,7 @@ function execDeletePackets(methodParam){
     });
 }
 
-async function deletePackets(paramJson){
+async function deletePackets(paramJson,callback){
     let pktIdn = paramJson.pktIdn || '';
     let ticket = paramJson.ticket || '';
     let outJson = {};
@@ -147,15 +147,15 @@ async function deletePackets(paramJson){
     //console.log("paramJson",paramJson);
   
     if(pktIdn != '' && ticket != ''){
-        const url = 'https://technet.rapaport.com/webservices/Upload/DiamondManager.asmx';
+        let url = 'https://technet.rapaport.com/webservices/Upload/DiamondManager.asmx';
 
-        const deleteheaders = {
+        let deleteheaders = {
             'user-agent': 'sampleTest',
             'Content-Type': 'text/xml;charset=UTF-8',
             'soapAction': 'http://technet.rapaport.com/DeleteLots',
             };
     
-        const deletexml = '<?xml version="1.0" encoding="utf-8"?> '+
+        let deletexml = '<?xml version="1.0" encoding="utf-8"?> '+
                     '<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"> '+
                     '<soap:Header> '+
                     '<AuthenticationTicketHeader xmlns="http://technet.rapaport.com/"> '+
@@ -177,6 +177,22 @@ async function deletePackets(paramJson){
             const { body, statusCode } = response;
             console.log("deletebody",body);
             console.log("deleteStatus",statusCode);
+            if(statusCode == 200){
+                let arr = body.split("<Ticket>");
+                let arr2 = arr[1] || '';
+                let arr3 = arr2.split("</Ticket>"); 
+                let ticket = arr3[0];
+                //console.log("ticket",arr3[0]);
+
+                outJson["result"]=ticket;
+                outJson["message"]="SUCCESS";
+                outJson["status"]="SUCCESS";
+                callback(null,outJson);  
+            }else{
+                outJson["message"]=body;
+                outJson["status"]="FAIL";
+                callback(null,outJson);   
+            }
 
         })();
     }
@@ -201,13 +217,13 @@ function getToken(paramJson,callback){
     //console.log("username",username);
     //console.log("password",password);
     if(username != '' && password != ''){
-        const url = 'https://technet.rapaport.com/webservices/Upload/DiamondManager.asmx';
-        const headers = {
+        let url = 'https://technet.rapaport.com/webservices/Upload/DiamondManager.asmx';
+        let headers = {
             'user-agent': 'sampleTest',
             'Content-Type': 'text/xml;charset=UTF-8',
             'soapAction': 'http://technet.rapaport.com/Login',
             };
-        const xml = '<?xml version="1.0" encoding="utf-8"?> '+
+        let xml = '<?xml version="1.0" encoding="utf-8"?> '+
             '<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"> '+
             '<soap:Body> '+
             '<Login xmlns="http://technet.rapaport.com/"> '+
