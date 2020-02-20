@@ -2950,6 +2950,7 @@ exports.checkImagesExistOfTrfDte =async function(req,res,tpoolconn,redirectParam
     var source = redirectParam.source;
     var cachedUrl = require('qaq-core-util').cachedUrl;
     let poolName = redirectParam.poolName;
+    let log_idn = redirectParam.log_idn;
     var resultFinal={};  
     var outJson={};
 
@@ -2987,6 +2988,7 @@ exports.checkImagesExistOfTrfDte =async function(req,res,tpoolconn,redirectParam
         paramJson["poolName"] = poolName;
         paramJson["biGroupList"] = biGroupList;
         paramJson["type"] = type;
+        paramJson["log_idn"]=log_idn;
         let pktResult = execGetPacketDetailsImage(paramJson);
         outJson["result"] = resultFinal;
         outJson["status"] = "SUCCESS";
@@ -3033,6 +3035,7 @@ function getPacketDetailsImage(paramJson,callback) {
     let poolName = paramJson.poolName;
     let biGroupList = paramJson.biGroupList || [];
     let type = paramJson.type;
+    let log_idn = paramJson.log_idn;
     let outJson = {};
     let fmt = {};
     let params=[];
@@ -3099,16 +3102,16 @@ function getPacketDetailsImage(paramJson,callback) {
                     params.push(coIdn);
                     params.push(coIdn);
                 } else {
-                    sql = "select pkt_idn,stock_idn,sm.status,CAST(sm.attr->>'recpt_dt' AS DATE) trf_dte, "+
-                        "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno "+ conQ +
-                        " from stock_m sm,stock_status ss "+
-                        "where sm.status = ss.status and sm.co_idn=$1 "+
-                        " and sm.stt=1 and sm.stock_type='NR' "+
-                        " and ss.stt=1 and ss.co_idn=$2 and "+
-                        " ss.bi_group in ('" + biGroupList.join("','") + "') and pkt_code = '5072207' "+ 
-                        "and CASE WHEN LENGTH(sm.attr ->> 'recpt_dt') <> 8 then "+
-                        "cast(to_char(current_date, 'YYYYMMDD') as int) "+
-                        "else cast(sm.attr ->> 'recpt_dt' as INT) end "+ 
+                    sql = "select pkt_idn,stock_idn,sm.status,CAST(sm.attr->>'recpt_dt' AS DATE) trf_dte, \n"+
+                        "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno \n"+ conQ +
+                        " from stock_m sm,stock_status ss \n"+
+                        "where sm.status = ss.status and sm.co_idn=$1 \n"+
+                        " and sm.stt=1 and sm.stock_type='NR' \n"+
+                        " and ss.stt=1 and ss.co_idn=$2 and \n"+
+                        " ss.bi_group in ('" + biGroupList.join("','") + "') \n"+ 
+                        "and CASE WHEN LENGTH(sm.attr ->> 'recpt_dt') <> 8 then \n"+
+                        "cast(to_char(current_date, 'YYYYMMDD') as int) \n"+
+                        "else cast(sm.attr ->> 'recpt_dt' as INT) end \n"+ 
                         //" and CAST(COALESCE(NULLIF(sm.attr ->> 'trf_dte', ''), '0') AS INT) \n" + 
                         " between "+dateFormat(date,'yyyymmdd')+" and "+dateFormat(new Date(),'yyyymmdd')+"\n" +  whereQ ;
                         params.push(coIdn);
@@ -3116,8 +3119,8 @@ function getPacketDetailsImage(paramJson,callback) {
                 }
                 
                 
-                console.log(sql);
-                console.log(params);
+                //console.log(sql);
+                //console.log(params);
                 coreDB.executeTransSql(tpoolconn,sql,params,fmt,async function(error,result){
                     if(error){
                         coreDB.doTransRelease(tpoolconn);
@@ -3128,7 +3131,8 @@ function getPacketDetailsImage(paramJson,callback) {
                         callback(null,outJson);
                     }else{
                         var len=result.rows.length;
-                        console.log("len",len);
+                        //console.log("len",len);
+                        let successCount = 0;
                         if(len>0){
                             for(let k=0;k<len;k++){
                                 let resultRows = result.rows[k];
@@ -3154,15 +3158,16 @@ function getPacketDetailsImage(paramJson,callback) {
                                     }
                                     
                                     imageMap[attr] = imageUrlVal;
-                                    console.log("Before imageUrlVal",imageUrlVal);
+                                    //console.log("Before imageUrlVal",imageUrlVal);
                                     let methodParam = {};
                                     methodParam["imageUrl"] = imageUrlVal;
                                     let imageResult = await execCheckImageExist(methodParam);
                                     imageUrlVal = replaceall(basicPathMap[attr], "", imageUrlVal);                        
-                                    console.log("imageResult",imageResult);
-                                    console.log("After imageUrlVal",imageUrlVal);
+                                    //console.log("imageResult",imageResult);
+                                    //console.log("After imageUrlVal",imageUrlVal);
                                     if(imageResult.status == 'SUCCESS'){
                                         resultViewMap[attr] = imageUrlVal;
+                                        successCount++;
                                     } else {
                                         resultViewMap[attr] = 'N';
                                     }
@@ -3182,6 +3187,14 @@ function getPacketDetailsImage(paramJson,callback) {
                                 list.push(map);
                                 resultViewList.push(imageMap);
                             }
+                            let dtl ={};
+                            dtl["totalPackets"] = len;
+                            dtl["successPacketCount"] = successCount;
+                            let methodParams = {};
+                            methodParams["logDetails"] = dtl;
+                            methodParams["log_idn"] = log_idn;
+                            let logResult = await execUpdateScheduleLog(methodParams,tpoolconn);
+            
                             //console.log(resultViewList);
                             //outJson["resultViewList"]=resultViewList;
                             //outJson["result"]=list;
@@ -3255,8 +3268,8 @@ function updateStockM(methodParam, tpoolconn, callback) {
     var stock_idn = methodParam.stock_idn;
     var outJson = {};
     var resultFinal = {};
-    console.log("stock_idn",stock_idn);
-    console.log("resultViewMap",resultViewMap);
+    //console.log("stock_idn",stock_idn);
+    //console.log("resultViewMap",resultViewMap);
 
     updateStock = "update stock_m set attr = attr || concat('" + JSON.stringify(resultViewMap) + "')::jsonb "+
         ",modified_ts=current_timestamp   where stock_idn = $1 and co_idn=$2 ";
