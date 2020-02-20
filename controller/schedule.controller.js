@@ -2987,7 +2987,7 @@ exports.checkImagesExistOfTrfDte =async function(req,res,tpoolconn,redirectParam
         paramJson["poolName"] = poolName;
         paramJson["biGroupList"] = biGroupList;
         paramJson["type"] = type;
-        let pktResult = execGetPacketDetails(paramJson);
+        let pktResult = execGetPacketDetailsImage(paramJson);
         outJson["result"] = resultFinal;
         outJson["status"] = "SUCCESS";
         outJson["message"] = "SUCCESS";
@@ -3012,9 +3012,9 @@ exports.checkImagesExistOfTrfDte =async function(req,res,tpoolconn,redirectParam
     }    
 }
 
-function execGetPacketDetails(paramJson){
+function execGetPacketDetailsImage(paramJson){
     return new Promise(function(resolve,reject) {
-        getPacketDetails(paramJson, function (error, result) {
+        getPacketDetailsImage(paramJson, function (error, result) {
         if(error){  
           reject(error);
          }
@@ -3023,7 +3023,7 @@ function execGetPacketDetails(paramJson){
     })
 }
 
-function getPacketDetails(paramJson,callback) {
+function getPacketDetailsImage(paramJson,callback) {
     var resultView = paramJson.resultView;
     let source = paramJson.source;
     var coIdn = paramJson.coIdn;
@@ -3105,7 +3105,7 @@ function getPacketDetails(paramJson,callback) {
                         "where sm.status = ss.status and sm.co_idn=$1 "+
                         " and sm.stt=1 and sm.stock_type='NR' "+
                         " and ss.stt=1 and ss.co_idn=$2 and "+
-                        " ss.bi_group in ('" + biGroupList.join("','") + "')   "+ 
+                        " ss.bi_group in ('" + biGroupList.join("','") + "') and pkt_code = '5072207' "+ 
                         "and CASE WHEN LENGTH(sm.attr ->> 'recpt_dt') <> 8 then "+
                         "cast(to_char(current_date, 'YYYYMMDD') as int) "+
                         "else cast(sm.attr ->> 'recpt_dt' as INT) end "+ 
@@ -3116,8 +3116,8 @@ function getPacketDetails(paramJson,callback) {
                 }
                 
                 
-                //console.log(sql);
-                //console.log(params);
+                console.log(sql);
+                console.log(params);
                 coreDB.executeTransSql(tpoolconn,sql,params,fmt,async function(error,result){
                     if(error){
                         coreDB.doTransRelease(tpoolconn);
@@ -3128,7 +3128,7 @@ function getPacketDetails(paramJson,callback) {
                         callback(null,outJson);
                     }else{
                         var len=result.rows.length;
-                        //console.log("len",len);
+                        console.log("len",len);
                         if(len>0){
                             for(let k=0;k<len;k++){
                                 let resultRows = result.rows[k];
@@ -3150,16 +3150,17 @@ function getPacketDetails(paramJson,callback) {
                                     if(imageUrlVal != ''){
                                         imageUrlVal = replaceall("vnm", vnm, imageUrlVal);
                                         imageUrlVal = replaceall("cert_no", certno, imageUrlVal);
+                                        //imageUrlVal = replaceall(" ","+",imageUrlVal);
                                     }
                                     
                                     imageMap[attr] = imageUrlVal;
-                                    //console.log(imageUrlVal);
+                                    console.log("Before imageUrlVal",imageUrlVal);
                                     let methodParam = {};
                                     methodParam["imageUrl"] = imageUrlVal;
                                     let imageResult = await execCheckImageExist(methodParam);
                                     imageUrlVal = replaceall(basicPathMap[attr], "", imageUrlVal);                        
-                                    //console.log("attr",attr);
-                                    //console.log("imageUrlVal",imageUrlVal);
+                                    console.log("imageResult",imageResult);
+                                    console.log("After imageUrlVal",imageUrlVal);
                                     if(imageResult.status == 'SUCCESS'){
                                         resultViewMap[attr] = imageUrlVal;
                                     } else {
@@ -3254,6 +3255,8 @@ function updateStockM(methodParam, tpoolconn, callback) {
     var stock_idn = methodParam.stock_idn;
     var outJson = {};
     var resultFinal = {};
+    console.log("stock_idn",stock_idn);
+    console.log("resultViewMap",resultViewMap);
 
     updateStock = "update stock_m set attr = attr || concat('" + JSON.stringify(resultViewMap) + "')::jsonb "+
         ",modified_ts=current_timestamp   where stock_idn = $1 and co_idn=$2 ";
