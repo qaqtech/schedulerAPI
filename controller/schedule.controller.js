@@ -619,6 +619,10 @@ function saveMFGDetails(redirectParam,callback) {
                 callback(null,outJson);
             }else{
                 let methodParam = {};
+                methodParam["coIdn"] = coIdn;
+                let result = await execDeleteMFGPlanPkt(methodParam,tpoolconn);
+                
+                methodParam = {};
                 methodParam["mfgPoolName"] = mfgPoolName;
                 methodParam["source"] = source;
                 methodParam["coIdn"] = coIdn;
@@ -726,6 +730,129 @@ async function getMFGDetails(paramJson,callback) {
                 let fmt = {};
                 let params=[];
 
+                var sql="with base_qry as \n"+
+                    "( \n"+
+                    "select c.lt_nmbr,c.asrt_pckt_nmbr,c.ref_nmbr pckt_nmbr,d.pln_id,d.pln_sqnc_nmbr ,c.pckt_id, \n"+
+                    "d.attr_id,case when c.pckt_nmbr=c.asrt_pckt_nmbr then c.pckt_cnt else 0 end as rgh_crts, \n"+
+                    "c.stg_flg, \n"+
+                    "(select p.pckt_id from pkt_master_m p where p.lt_nmbr=c.lt_nmbr and p.pckt_nmbr=c.asrt_pckt_nmbr) apkt_id, \n"+
+                    "c.fnl_cnts cur_crts, coalesce(c.prcs_cd,c.nxt_prcs) prcs_cd, coalesce(c.fnct_cd,c.nxt_fnct) fnct_cd, \n"+
+                    "c.pckt_stts, \n"+
+                    "Rank() over(partition by c.pckt_id order by d.pln_id,d.pln_sqnc_nmbr) pln_sr, \n"+
+                    "coalesce(c.to_cmpn_cd,c.fctr_id) unit_id \n"+
+                    "from pkt_master_m c \n"+
+                    "left outer join pkt_plning_t d \n"+
+                    "on c.pckt_id=d.pckt_id \n"+
+                    "and d.pln_id = ( select max(b.pln_id) from pkt_fnlpln_t b \n"+
+                    "where b.pckt_id=c.pckt_id \n"+
+                    "and b.trns_srno=(select max(a.trns_srno) from pkt_fnlpln_t a \n"+
+                    "where a.pckt_id=b.pckt_id \n"+
+                    "and a.pln_typ in ('MF','F') )) \n"+
+                    "where c.actv_flg='Y' and attr_id is not null \n"+
+                    ") \n"+
+                    "select  a.*,case when a.pln_sr=1 then a.rgh_crts else 0 end rgh_crts_nw, \n"+
+                    "(case when a.attr_id is not null then (select json_object_agg(lower(t.mprp), t.srt) from pkt_atrdtl_t t \n"+
+                    "where t.pckt_id=a.pckt_id and t.attr_id=a.attr_id and t.srt is not null) else null end ) attr \n"+
+                    "from base_qry a  ";
+
+                //params.push(fromDate);
+                //params.push(toDate);
+                //console.log(sql)
+                //console.log(params)
+                coreDB.executeTransSql(mfgconnection,sql,params,fmt,function(error,result){
+                    if(error){
+                        console.log(error);
+                        coreDB.doRelease(mfgconnection);
+                        outJson["status"]="FAIL";
+                        outJson["message"]="Error In getMFGData Method!";
+                        callback(null,outJson);
+                    }else{
+                        var len=result.rows.length;
+                        //console.log("len",len);
+                        let attrIdList = [];
+                        if(len>0){
+                            for(let i =0 ;i<len;i++){                                   
+                                let data = result.rows[i];
+                                var k = {};
+                                k["mfg_pckt_id"]=data.pckt_id;
+                                k["ase_pckt_id"]=data.apkt_id; 
+                                let attr_id = data.attr_id; 
+                                attrIdList.push(parseInt(attr_id));
+                                k["attr_id"]= attr_id;
+                                let lot = data.lt_nmbr;  
+                                k["mfg_lt_nmbr"]=lot;
+                                k["pln_id"]=data.pln_id;  
+                                k["pln_sqnc_nmbr"]=data.pln_sqnc_nmbr; 
+                                k["cstm_nmbr"]=data.pln_sr;
+                                let rough_cts = data.rgh_crts_nw;
+                                k["rgh_cts"] = rough_cts; 
+                                let prcs_cd = data.prcs_cd;
+                                let fnct_cd = data.fnct_cd;
+                                let attr = data.attr || {}; 
+                                attr["lot"] = lot;
+                                attr["rough_cts"] = rough_cts;
+                                attr["prcs_cd"] = prcs_cd;
+                                attr["fnct_cd"] = fnct_cd;
+                                k["attr"]=attr;
+                               // k["plan_vlu"]=data.pln_vlu || '';
+                                k["mfg_pckt_nmbr"]=data.pckt_nmbr; 
+                               // k["mfg_trns_dte"] = data.trns_dt || '';
+                                k["mfg_stage"] = data.stg_flg;
+                                mfgDataList.push(k);                                      
+                            }
+
+                            //console.log("mfgDataListLen",mfgDataList.length);
+                            coreDB.doRelease(mfgconnection);
+                            outJson["status"]="SUCCESS";
+                            outJson["message"]="SUCCESS";
+                            outJson["result"]=mfgDataList;
+                            outJson["attrIdList"]=attrIdList;
+                            callback(null,outJson);
+                        }else{
+                            coreDB.doRelease(mfgconnection);
+                            outJson["status"]="FAIL";
+                            outJson["message"]="Sorry result not found";
+                            outJson["result"]=mfgDataList;
+                            callback(null,outJson);
+                        }
+                    }
+                })
+            }
+        })
+    } else{
+        outJson["result"]='';
+        outJson["status"]="FAIL";
+        outJson["message"]="Please Verify Pool from PoolList can not be blank!";
+        callback(null,outJson);
+    }
+}
+
+async function getMFGDetailsOld(paramJson,callback) {
+    var coIdn = paramJson.coIdn;
+    let mfgPoolName = paramJson.mfgPoolName;
+    let source = paramJson.source;
+    let fromDate = paramJson.fromDate;
+    let toDate = paramJson.toDate;
+    let fromDays = paramJson.fromDays;
+    let toDays = paramJson.toDays;
+    let outJson = {};
+    var mfgDataList = [];
+    var poolsList= require('qaq-core-db').poolsList;
+    mfgPoolName = mfgPoolName.trim();
+    //console.log("mfgPoolName",mfgPoolName);
+    var pool = poolsList[mfgPoolName] || '';
+    if(pool !=''){
+        coreDB.getTransPoolConnect(pool,function(error,mfgconnection){
+            if(error){  
+                console.log(error);
+                outJson["status"]="FAIL";
+                outJson["message"]="Fail To Get MFG Conection!";
+                callback(null,outJson);   
+            }else{
+
+                let fmt = {};
+                let params=[];
+
                 var sql="with planD as ( \n"+
                     "select \n"+
                     "a.lt_nmbr mfg_lt_nmbr,a.asrt_pckt_nmbr mfg_pckt_nmbr, \n"+
@@ -803,24 +930,24 @@ async function getMFGDetails(paramJson,callback) {
                             for(let i =0 ;i<len;i++){                                   
                                 let data = result.rows[i];
                                 var k = {};
-                                k["mfg_pckt_id"]=data.mfg_sub_pckt_id;
-                                k["ase_pckt_id"]=data.ase_pckt_id;
-                                let attr_id = data.attr_id;
+                                k["mfg_pckt_id"]=data.mfg_sub_pckt_id; // pckt_id
+                                k["ase_pckt_id"]=data.ase_pckt_id; // apkt_id
+                                let attr_id = data.attr_id; // attr_id
                                 attrIdList.push(parseInt(attr_id));
                                 k["attr_id"]= attr_id;
-                                let lot = data.ase_lt_nmbr;
+                                let lot = data.ase_lt_nmbr; //  lt_nmbr
                                 k["mfg_lt_nmbr"]=lot;
-                                k["pln_id"]=data.pln_id;
-                                k["pln_sqnc_nmbr"]=data.pln_sqnc_nmbr;
+                                k["pln_id"]=data.pln_id;  //pln_id
+                                k["pln_sqnc_nmbr"]=data.pln_sqnc_nmbr; //  pln_sqnc_nmbr
                                 k["cstm_nmbr"]=data.cstm_nmbr;
                                 let rough_cts = data.rgh_cts;
-                                k["rgh_cts"] = rough_cts;
-                                let attr = data.attr || {};
+                                k["rgh_cts"] = rough_cts; //rgh_crts
+                                let attr = data.attr || {}; // attr
                                 attr["lot"] = lot;
                                 attr["rough_cts"] = rough_cts;
                                 k["attr"]=attr;
                                 k["plan_vlu"]=data.pln_vlu;
-                                k["mfg_pckt_nmbr"]=data.mfg_pckt_nmbr;
+                                k["mfg_pckt_nmbr"]=data.mfg_pckt_nmbr; //pckt_nmbr
                                 k["mfg_trns_dte"] = data.trns_dt;
                                 k["mfg_stage"] = "MKB";
                                 mfgDataList.push(k);                                      
@@ -852,6 +979,43 @@ async function getMFGDetails(paramJson,callback) {
     }
 }
 
+function execDeleteMFGPlanPkt(methodParam,tpoolconn){
+    return new Promise(function(resolve,reject) {
+        deleteMFGPlanPkt(methodParam,tpoolconn, function (error, result) {
+            if(error){  
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function deleteMFGPlanPkt(methodParam,tpoolconn,callback){
+    var coIdn = methodParam.coIdn;
+    let params=[];
+    let fmt = {};
+    let outJson = {};
+   
+    let sql=" truncate table mfg_plan_pkt_t"; 
+
+    //console.log(sql);
+    //console.log(params);
+    coreDB.executeTransSql(tpoolconn,sql,params,fmt,function(error,result){
+        if(error){
+            console.log(error)
+            coreDB.doTransRollBack(tpoolconn);
+            outJson["status"]="FAIL";
+            outJson["message"]="Error In mfg_plan_pkt_t Method!"+error.message;
+            callback(null,outJson);
+        }else{
+            var rowCount = result.rowCount;
+            outJson["status"] = "SUCCESS";
+            outJson["message"] = "SUCCESS";
+            callback(null, outJson);       
+        }
+    });
+}
+
 function execInsertMFGPlanPkt(methodParam,tpoolconn){
     return new Promise(function(resolve,reject) {
         insertMFGPlanPkt(methodParam,tpoolconn, function (error, result) {
@@ -872,11 +1036,11 @@ function insertMFGPlanPkt(methodParam,tpoolconn,callback){
 
    
     let insertQ="insert into mfg_plan_pkt_t(mfg_pckt_id,ase_pckt_id,"+
-        "attr_id,mfg_lt_nmbr,pln_id,pln_sqnc_nmbr,cstm_nmbr,attr,plan_vlu,rgh_cts ,mfg_pckt_nmbr,mfg_trns_dte,mfg_stage,stt,created_ts) "+
+        "attr_id,mfg_lt_nmbr,pln_id,pln_sqnc_nmbr,cstm_nmbr,attr,rgh_cts ,mfg_pckt_nmbr,mfg_stage,stt,created_ts) "+ //,plan_vlu,mfg_trns_dte
         "select *,1 stt,current_timestamp created_ts from "+
         "jsonb_to_recordset('"+JSON.stringify(mfgDataList)+"'::jsonb) "+
         "as x(mfg_pckt_id int,ase_pckt_id int,attr_id bigInt,mfg_lt_nmbr varchar,"+
-        "pln_id bigInt,pln_sqnc_nmbr int,cstm_nmbr int,attr jsonb,plan_vlu numeric,rgh_cts numeric,mfg_pckt_nmbr varchar,mfg_trns_dte date,mfg_stage varchar)  ";
+        "pln_id bigInt,pln_sqnc_nmbr int,cstm_nmbr int,attr jsonb,rgh_cts numeric,mfg_pckt_nmbr varchar,mfg_stage varchar)  "; //,plan_vlu numeric,mfg_trns_dte date
 
     //console.log(insertQ);
     //console.log(params);
@@ -889,6 +1053,7 @@ function insertMFGPlanPkt(methodParam,tpoolconn,callback){
             callback(null,outJson);
         }else{
             var rowCount = result.rowCount;
+            //console.log("rowCount",rowCount);
             if(rowCount>0){
                 outJson["status"] = "SUCCESS";
                 outJson["message"] = "SUCCESS";
@@ -986,8 +1151,8 @@ function updateMFGPlanPktFromStockM(methodParam,tpoolconn,callback){
 
     params=[];
     params.push(coIdn);
-    //console.log(sql);
-    //console.log(params);
+    console.log(sql);
+    console.log(params);
     coreDB.executeTransSql(tpoolconn,sql,params,fmt,async function(error,result){
         if(error){
             console.log(error)
