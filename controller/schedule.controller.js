@@ -3464,3 +3464,250 @@ function updateStockM(methodParam, tpoolconn, callback) {
         }
     });
 }
+
+exports.saveAccountData = function(req,res,tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    let source = redirectParam.source || req.body.source;
+    let log_idn = redirectParam.log_idn;
+    let poolName = redirectParam.poolName;
+    var outJson={};
+
+    let oraclePoolName = req.body.oraclePoolName || 'KGFAPOOL';
+    var fromDate = req.body.fromDate || '';
+    var toDate = req.body.toDate || '';
+
+    let methodParam = {};
+    methodParam["oraclePoolName"] = oraclePoolName;
+    methodParam["source"] = source;
+    methodParam["coIdn"] = coIdn;
+    methodParam["fromDate"] = fromDate;
+    methodParam["toDate"] = toDate;
+    methodParam["log_idn"] = log_idn;
+    methodParam["poolName"] = poolName;
+    methodParam["logUsr"] = "SYNC";
+    let accResult = execSaveAccountDetails(methodParam);
+
+    outJson["status"]="SUCCESS";
+    outJson["message"]="Account data inserted successfully";
+    callback(null,outJson);          
+}
+
+function execSaveAccountDetails(methodParam) {
+    return new Promise(function (resolve, reject) {
+        saveAccountDetails( methodParam,  function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+async function saveAccountDetails(redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    let source = redirectParam.source;
+    let log_idn = redirectParam.log_idn;
+    let oraclePoolName = redirectParam.oraclePoolName || 'KGFAPOOL';
+    var fromDate = redirectParam.fromDate || '';
+    var toDate = redirectParam.toDate || '';
+    let poolName = redirectParam.poolName;
+    let logUsr = redirectParam.logUsr;
+    var outJson={};
+    let dtl = {};
+   
+    let methodParam = {};
+    methodParam["oraclePoolName"] = oraclePoolName;
+    methodParam["source"] = source;
+    methodParam["coIdn"] = coIdn;
+    methodParam["fromDate"] = fromDate;
+    methodParam["toDate"] = toDate;
+    let accResult = await execGetOracleAccDetails(methodParam);
+    let accDataList = accResult["result"] || [];
+    dtl["getAccountDataStatus"] =  accResult.status;
+    dtl["getAccountDataMessage"] =  accResult.message;
+    dtl["getAccountDataCount"] = accDataList.length;
+
+    var poolsList= require('qaq-core-db').poolsList;
+    var pool = poolsList[poolName] || 'TPOOL';
+    if(pool !=''){
+        coreDB.getTransPoolConnect(pool,async function(error,tpoolconn){
+            if(error){
+                console.log(error);
+                outJson["result"]='';
+                outJson["status"]="FAIL";
+                outJson["message"]="Fail To Get Conection!";
+                callback(null,outJson);
+            }else{
+                let methodParams = {};
+                methodParams["logDetails"] = dtl;
+                methodParams["log_idn"] = log_idn;
+                let logResult = await execUpdateScheduleLog(methodParams,tpoolconn);
+                if(accResult.status == 'SUCCESS'){
+                    accDataList = accResult["result"] || [];
+                    let tileWisearrayExec = [];
+                    for(let i=0;i<accDataList.length;i++){
+                        let obj = accDataList[i];
+                        let paramJson={};
+                        paramJson["inv_date"] = obj.inv_date;  
+                        paramJson["pkt_code"] = obj.mstk_idn; 
+                        paramJson["inv_no"] = obj.inv_no; 
+                        paramJson["fe_rate"] = obj.fe_rate;
+                        paramJson["rs_rate"] = obj.rs_rate;
+                        paramJson["logUsr"] =logUsr;
+                        tileWisearrayExec.push(function (callback) { updateAccountData(paramJson, tpoolconn,callback); });
+                    }
+                    async.parallel(tileWisearrayExec,async function (err, result) {
+                        if (err) {
+                            console.log(err);
+                            coreDB.doTransRelease(tpoolconn);
+                            outJson["status"]="FAIL";
+                            outJson["message"]="Error In updateEntries Method!";
+                            callback(null,outJson);
+                        } else {
+                            coreDB.doTransRelease(tpoolconn);
+                            outJson["status"]="SUCCESS";
+                            outJson["message"]="SUCCESS";
+                            callback(null,outJson);
+                        }
+                    })   
+                }else{
+                    coreDB.doTransRelease(tpoolconn);
+                    callback(null,accResult);
+                }  
+            }
+        })
+    }else{
+        outJson["result"]='';
+        outJson["status"]="FAIL";
+        outJson["message"]="Please Verify Pool from PoolList can not be blank!";
+        callback(null,outJson);
+    }            
+}
+
+function execGetOracleAccDetails(methodParam) {
+    return new Promise(function (resolve, reject) {
+        getOracleAccDetails( methodParam,  function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+async function getOracleAccDetails(paramJson,callback) {
+    var coIdn = paramJson.coIdn;
+    let oraclePoolName = paramJson.oraclePoolName;
+    let source = paramJson.source;
+    let fromDate = paramJson.fromDate;
+    let toDate = paramJson.toDate;
+    let outJson = {};
+    var accDataList = [];
+    oraclePoolName = oraclePoolName.trim();
+    coreDB.getPoolConnect(oraclePoolName,function(error,oracleconnection){
+        if(error){
+                console.log(error);
+                outJson["status"]="FAIL";
+                outJson["message"]="Fail To Get Oracle Connection!";
+                callback(null,outJson);   
+        }else{
+
+            let fmt = {outFormat: oracledb.OBJECT};
+            let params = {};
+            
+            var sql="select to_char(inv_date, 'yyyymmdd') inv_date, mstk_idn, \n"+
+                "inv_no, decode(currency_prefix, 'RS', trunc(rate/bank_rate,2), rate) fe_rate \n"+
+                ", decode(currency_prefix, 'RS', rate, trunc(rate*bank_rate,2)) rs_rate \n"+
+                "from ie_sal_item \n"+
+                "where inv_date between to_date('"+fromDate+"','dd/mm/yyyy') and to_date('"+toDate+"','dd/mm/yyyy') \n"+
+                //"and mstk_idn in (5014257,5056184,5021754,5044887) "+
+                "order by 1 desc ";
+
+            //console.log(sql)
+            //console.log(params)
+            coreDB.executeSql(oracleconnection,sql,params,fmt,function(error,result){
+                if(error){
+                    console.log(error);
+                    coreDB.doRelease(oracleconnection);
+                    outJson["status"]="FAIL";
+                    outJson["message"]="Error In getOracleAccDetails Method!"+error.message;
+                    callback(null,outJson);
+                }else{
+                    var len=result.rows.length;
+                    //console.log("len",len);
+                    if(len>0){
+                        for(let i =0 ;i<len;i++){                                   
+                            let data = result.rows[i];
+                            let k = {};
+                            k["inv_date"]=data["INV_DATE"];
+                            k["mstk_idn"]=data["MSTK_IDN"]; 
+                            k["inv_no"]= data["INV_NO"];
+                            k["fe_rate"]=data["FE_RATE"];
+                            k["rs_rate"]=data["RS_RATE"];  
+                            
+                            accDataList.push(k);                                      
+                        }
+
+                        console.log("accDataList",accDataList.length);
+                        coreDB.doRelease(oracleconnection);
+                        outJson["status"]="SUCCESS";
+                        outJson["message"]="SUCCESS";
+                        outJson["result"]=accDataList;
+                        callback(null,outJson);
+                    }else{
+                        coreDB.doRelease(oracleconnection);
+                        outJson["status"]="FAIL";
+                        outJson["message"]="Sorry result not found";
+                        outJson["result"]=accDataList;
+                        callback(null,outJson);
+                    }
+                }
+            })
+        }
+    })
+
+}
+
+function updateAccountData(methodParam, tpoolconn, callback) {
+    let inv_date = methodParam.inv_date;
+    let pkt_code = methodParam.pkt_code;
+    let inv_no = methodParam.inv_no;
+    let fe_rate = methodParam.fe_rate;
+    let rs_rate = methodParam.rs_rate;
+    let logUsr = methodParam.logUsr;
+    let attrDtl = {};
+    attrDtl["acc_inv_date"] = inv_date;
+    attrDtl["acc_inv_no"] = inv_no;
+    attrDtl["acc_per_rs"] = rs_rate;
+    attrDtl["acc_per_fe"] = fe_rate;
+
+    let fmt = {};
+    let params = [];
+    let outJson = {};
+    var sql = "update stock_m  set attr = attr || '" + JSON.stringify(attrDtl) + "' "+
+        ", modified_ts = current_timestamp, modified_by = $1 "+
+        " where pkt_code = $2 ";
+
+    params.push(logUsr);
+    params.push(pkt_code);
+    //console.log(sql);
+    //console.log(params);
+    coreDB.executeTransSql(tpoolconn, sql, params, fmt, function (error, result) {
+        if (error) {
+            outJson["status"] = "FAIL";
+            outJson["message"] = "Error In update stock_m Method!";
+            callback(null, outJson);
+        } else {
+            var len = result.rowCount;
+            if (len > 0) {
+                outJson["status"] = "SUCCESS";
+                outJson["message"] = "SUCCESS";
+                callback(null, outJson);
+            } else {
+                outJson["status"] = "FAIL";
+                outJson["message"] = "Stock Master not updated";
+                callback(null, outJson);
+            }  
+        }
+    });
+}
