@@ -2320,6 +2320,11 @@ async function getSoldDtl( tpoolconn, redirectParam, callback) {
                         callback(null, outJson); 
                     }
                 })
+            } else {
+                outJson["result"] = msg;
+                outJson["status"] = "SUCCESS";
+                outJson["message"] = "SUCCESS";
+                callback(null, outJson); 
             }
         }
     }) 
@@ -2435,6 +2440,11 @@ async function getDeliveryDtl( tpoolconn, redirectParam, callback) {
                         callback(null, outJson); 
                     }
                 })
+            } else {
+                outJson["result"] = msg;
+                outJson["status"] = "SUCCESS";
+                outJson["message"] = "SUCCESS";
+                callback(null, outJson); 
             }
         }
     }) 
@@ -2680,6 +2690,12 @@ function mailSendSaleSummary(connection,paramJson,callback){
                     body = body.replace("~deliveredDetails",dlvSummary);
                     body = body.replace("~salePersonDetails",salePrsSummary);
                     body = body.replace("~mixSaleDetails",mixSaleSummary);
+
+                    let txt = '';
+                    if(dlvSummary != ''){
+                        txt = '<td valign="middle" align="" style="color:#5a5a5a;padding:5px;width:100%" colspan="2">Delivered Summary Details</td>';
+                    }
+                    body = body.replace("~deliverySummary",txt);
                     
                       
                     var recipientlist = data["recipientlist"];
