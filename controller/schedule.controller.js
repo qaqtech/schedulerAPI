@@ -3728,7 +3728,7 @@ function updateAccountData(methodParam, tpoolconn, callback) {
     });
 }
 
-exports.marketStockSync = function(req,res,tpoolconn,redirectParam,callback) {
+exports.marketStockSync =async function(req,res,tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
     let source = redirectParam.source || req.body.source;
     let log_idn = redirectParam.log_idn;
@@ -3741,11 +3741,9 @@ exports.marketStockSync = function(req,res,tpoolconn,redirectParam,callback) {
     let methodParam = {};
     methodParam["username"] = username;
     methodParam["password"] = password;
-    let authResult = execGetAuthenticate(methodParam);
-
-    outJson["status"]="SUCCESS";
-    outJson["message"]="SUCCESS";
-    callback(null,outJson);          
+    let authResult = await execGetAuthenticate(methodParam);
+    console.log("authResult",authResult);
+    callback(null,authResult);          
 }
 
 function execGetAuthenticate(methodParam) {
@@ -3771,6 +3769,7 @@ function getAuthenticate(paramJson, callback){
     var headers = {
         'Content-Type':'application/json'
     }
+    //console.log(authData)
 
     var options = {
         url: 'https://qapi.market.diamonds/api/v1/auth/login',
@@ -3778,20 +3777,25 @@ function getAuthenticate(paramJson, callback){
         headers: headers,
         form: JSON.stringify(authData)
     };
+    //console.log(options);
     request(options,async function (error, response, body) {
         console.log(error);
         console.log("statusCode"+response.statusCode );
-        //console.log(response.status );
+        //console.log(response );
         //console.log(response.message );
         if (!error && response.statusCode == 200) {
             console.log("body"+body); // Print the shortened url.
             let info = JSON.parse(body);
             console.log(info);
+            outJson["result"] = info;
+            outJson["message"]="SUCCESS";
+            outJson["status"]="SUCCESS";
             callback(null,outJson);        
         }else{
-            console.log(error);
+
             outJson["message"]=error;
             outJson["status"]="FAIL";
+            console.log("IN",error);
             callback(null,outJson);   
         }
     });   
