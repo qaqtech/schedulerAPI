@@ -3727,3 +3727,74 @@ function updateAccountData(methodParam, tpoolconn, callback) {
         }
     });
 }
+
+exports.marketStockSync = function(req,res,tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    let source = redirectParam.source || req.body.source;
+    let log_idn = redirectParam.log_idn;
+    let poolName = redirectParam.poolName;
+    var outJson={};
+
+    let username = req.body.username || 'KapuGems';
+    var password = req.body.password || 'Kapu@123';
+
+    let methodParam = {};
+    methodParam["username"] = username;
+    methodParam["password"] = password;
+    let authResult = execGetAuthenticate(methodParam);
+
+    outJson["status"]="SUCCESS";
+    outJson["message"]="SUCCESS";
+    callback(null,outJson);          
+}
+
+function execGetAuthenticate(methodParam) {
+    return new Promise(function (resolve, reject) {
+        getAuthenticate( methodParam,  function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getAuthenticate(paramJson, callback){
+    let username = paramJson.username || '';
+    let password = paramJson.password || '';
+    let outJson = {};
+    let resultFinal = {};
+    let authData = {};
+    authData["username"] = username;
+    authData["password"] = password;
+
+    var headers = {
+        'Content-Type':'application/json'
+    }
+
+    var options = {
+        url: 'https://qapi.market.diamonds/api/v1/auth/login',
+        method: 'POST',
+        headers: headers,
+        form: JSON.stringify(authData)
+    };
+    request(options,async function (error, response, body) {
+        console.log(error);
+        console.log("statusCode"+response.statusCode );
+        //console.log(response.status );
+        //console.log(response.message );
+        if (!error && response.statusCode == 200) {
+            console.log("body"+body); // Print the shortened url.
+            let info = JSON.parse(body);
+            console.log(info);
+            callback(null,outJson);        
+        }else{
+            console.log(error);
+            outJson["message"]=error;
+            outJson["status"]="FAIL";
+            callback(null,outJson);   
+        }
+    });   
+}
+
+
