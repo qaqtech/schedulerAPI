@@ -3735,6 +3735,7 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
     let source = redirectParam.source || req.body.source;
     let log_idn = redirectParam.log_idn;
+    let poolName = redirectParam.poolName;
     var outJson={};
 
     let portal = req.body.portal || '';
@@ -3743,8 +3744,11 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
     let fmt = {};
     let params = [];
     var sql = "Select o.co_idn, o.refresh_min,file_idn from portal_sync p, file_options o \n"+
-        "where p.nme = $1 and o.portal_idn = p.portal_idn and o.stt=1 \n"+
-        "and COALESCE(next_refresh_ts,CURRENT_TIMESTAMP) <= current_timestamp  ";
+        "where p.nme = $1 and o.portal_idn = p.portal_idn and o.stt=1 \n";
+        if(process == 'refresh'){
+           sql +=  " and COALESCE(next_refresh_ts,CURRENT_TIMESTAMP) <= current_timestamp  ";
+        }
+        
 
     params.push(portal);
     //console.log(sql);
@@ -3767,7 +3771,8 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
                     methodParam["portal"] = portal;
                     methodParam["process"] = process;
                     methodParam["scheduleYN"] = "Y";
-                    let syncResult = await execGetSyncDtl(methodParam,tpoolconn);
+                    methodParam["poolName"] = poolName;
+                    let syncResult = execGetSyncDtl(methodParam);
                 }
                 outJson["status"] = "SUCCESS";
                 outJson["message"] = "SUCCESS";
@@ -3781,9 +3786,9 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
     });  
 }
 
-function execGetSyncDtl(methodParam, tpoolconn) {
+function execGetSyncDtl(methodParam) {
     return new Promise(function (resolve, reject) {
-        getSyncDtl(tpoolconn, methodParam, function (error, result) {
+        getSyncDtl( methodParam, function (error, result) {
             if (error) {
                 reject(error);
             }
@@ -3793,85 +3798,142 @@ function execGetSyncDtl(methodParam, tpoolconn) {
 
 }
 
-async function getSyncDtl(tpoolconn,redirectParam,callback) {
+async function getSyncDtl(redirectParam,callback) {
     let coIdn = redirectParam.coIdn;
     let fileIdn = redirectParam.fileIdn || '';
     let portal = redirectParam.portal || '';
     let process = redirectParam.process || '';
     let refresh_min = redirectParam.refresh_min || '';
     let scheduleYN = redirectParam.scheduleYN || "N";
+    let poolName = redirectParam.poolName;
     var outJson={};
- 
-    let methodParam = {};
-    methodParam["coIdn"] = coIdn;
-    methodParam["fileIdn"] = fileIdn;
-    methodParam["process"] = process;
-    let fileResult = await execGetStockFile(methodParam,tpoolconn);
-    if(fileResult.status == 'SUCCESS'){
-        let fileObj = fileResult["result"] || {};
-        let username = fileObj["username"];
-        let password = fileObj["password"];
-        let filePath = fileObj["filePath"] || '';
-        let filename = fileObj["filename"] || '';
 
-        if(portal == 'marketd'){
-            let jwt = '';
-            let clientSecret = '';
-            methodParam = {};
-            methodParam["username"] = username;
-            methodParam["password"] = password;
-            let authResult = await execGetAuthenticate(methodParam);
-            if(authResult.status == 'SUCCESS'){
-                let tokenResult = authResult["result"] || {};
-    
-                let data = tokenResult["data"] || {};
-                let token = data["token"] || {};
-                jwt = token["jwt"] || ''; 
-                clientSecret = data["clientSecret"] || '';
-            } else {
-                callback(null,authResult);       
-            }
-            if(process == 'refresh'){
-                methodParam = {};
-                methodParam["jwt"] =jwt;
-                methodParam["clientSecret"] = clientSecret;
-                methodParam["filePath"] = filePath;
-                methodParam["filename"] = filename;
-                let uploadResult = await execGetUploadFile(methodParam);
-                if(uploadResult.status == 'SUCCESS'){ 
-                    outJson["result"]=uploadResult["result"];
-                    outJson["status"]="SUCCESS";
-                    outJson["message"]="File Uploaded Successfully!";  
+    var poolsList= require('qaq-core-db').poolsList;
+    var pool = poolsList[poolName] || 'TPOOL';
+    if(pool !=''){
+        coreDB.getTransPoolConnect(pool,async function(error,tpoolconn){
+            if(error){
+                console.log(error);
+                outJson["result"]='';
+                outJson["status"]="FAIL";
+                outJson["message"]="Fail To Get Conection!";
+                callback(null,outJson);
+            }else{
+                let methodParam = {};
+                methodParam["coIdn"] = coIdn;
+                methodParam["fileIdn"] = fileIdn;
+                methodParam["process"] = process;
+                let fileResult = await execGetStockFile(methodParam,tpoolconn);
+                if(fileResult.status == 'SUCCESS'){
+                    let fileObj = fileResult["result"] || {};
+                    let username = fileObj["username"];
+                    let password = fileObj["password"];
+                    let filePath = fileObj["filePath"] || '';
+                    let filename = fileObj["filename"] || '';
+
+                    if(portal == 'marketd'){
+                        methodParam = {};
+                        methodParam["username"] =username;
+                        methodParam["password"] = password;
+                        methodParam["filePath"] = filePath;
+                        methodParam["filename"] = filename;
+                        methodParam["coIdn"] = coIdn;
+                        methodParam["process"] = process;
+                        let syncResult = await execGetMarketSync(methodParam,tpoolconn);
+                    }  
+                    methodParam = {};
+                    methodParam["fileIdn"] =fileIdn;
+                    methodParam["refresh_min"] = refresh_min;
+                    methodParam["scheduleYN"] = scheduleYN;
+                    methodParam["process"] = process;
+                    let intervalResult = await execUpdateInterval(methodParam,tpoolconn);
+                    coreDB.doTransRelease(tpoolconn);
+                    callback(null,outJson);       
                 } else {
-                    callback(null,uploadResult);  
-                }
-            } else if(process == 'status'){
-                methodParam = {};
-                methodParam["jwt"] =jwt;
-                methodParam["clientSecret"] = clientSecret;
-                //methodParam["stoneListStr"] = stoneListStr;
-                //methodParam["status"] = status;
-                let statusResult = await execGetUpdateStatus(methodParam);
-                if(statusResult.status == 'SUCCESS'){ 
-                    outJson["result"]=statusResult["result"];
-                    outJson["status"]="SUCCESS";
-                    outJson["message"]="Stones Status Updated Successfully!";  
-                } else {
-                    callback(null,statusResult);  
-                }
-            }  else if(method == 'delete'){
-               
+                    coreDB.doTransRelease(tpoolconn);
+                    callback(null,fileResult);  
+                }  
             }
-        }  
-        methodParam = {};
-        methodParam["fileIdn"] =fileIdn;
-        methodParam["refresh_min"] = refresh_min;
-        methodParam["scheduleYN"] = scheduleYN;
-        let intervalResult = await execUpdateInterval(methodParam,tpoolconn);
-        callback(null,outJson);       
+        })
+    } else{
+        outJson["result"]='';
+        outJson["status"]="FAIL";
+        outJson["message"]="Please Verify Pool from PoolList can not be blank!";
+        callback(null,outJson);
+    }     
+}
+
+function execGetMarketSync(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getMarketSync(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+async function getMarketSync(tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    var filePath = redirectParam.filePath;
+    let process = redirectParam.process;
+    let username = redirectParam.username;
+    let password = redirectParam.password;
+    let filename = redirectParam.filename;
+    var methodParam={};  
+    var outJson={};
+
+    let jwt = '';
+    let clientSecret = '';
+    methodParam = {};
+    methodParam["username"] = username;
+    methodParam["password"] = password;
+    let authResult = await execGetAuthenticate(methodParam);
+    if(authResult.status == 'SUCCESS'){
+        let tokenResult = authResult["result"] || {};
+
+        let data = tokenResult["data"] || {};
+        let token = data["token"] || {};
+        jwt = token["jwt"] || ''; 
+        clientSecret = data["clientSecret"] || '';
     } else {
-        callback(null,fileResult);  
-    }      
+        callback(null,authResult);       
+    }
+    if(process == 'refresh'){
+        methodParam = {};
+        methodParam["jwt"] =jwt;
+        methodParam["clientSecret"] = clientSecret;
+        methodParam["filePath"] = filePath;
+        methodParam["filename"] = filename;
+        let uploadResult = await execGetUploadFile(methodParam);
+        if(uploadResult.status == 'SUCCESS'){ 
+            outJson["result"]=uploadResult["result"];
+            outJson["status"]="SUCCESS";
+            outJson["message"]="File Uploaded Successfully!"; 
+            callback(null,outJson);   
+        } else {
+            callback(null,uploadResult);  
+        }
+    } else if(process == 'status'){
+        methodParam = {};
+        methodParam["jwt"] =jwt;
+        methodParam["clientSecret"] = clientSecret;
+        //methodParam["stoneListStr"] = stoneListStr;
+        //methodParam["status"] = status;
+        let statusResult = await execGetUpdateStatus(methodParam);
+        if(statusResult.status == 'SUCCESS'){ 
+            outJson["result"]=statusResult["result"];
+            outJson["status"]="SUCCESS";
+            outJson["message"]="Stones Status Updated Successfully!";  
+            callback(null,outJson);  
+        } else {
+            callback(null,statusResult);  
+        }
+    }  else if(method == 'delete'){
+        callback(null,outJson);
+    }
 }
 
 function execGetStockFile(methodParam, tpoolconn) {
@@ -4450,6 +4512,7 @@ function updateInterval(tpoolconn, paramJson, callback) {
     var fileIdn = paramJson.fileIdn || '';
     var refresh_min = paramJson.refresh_min || 0;
     let scheduleYN = paramJson.scheduleYN || "N";
+    let process = paramJson.process;
     let outJson = {};
     let list = [];
 
