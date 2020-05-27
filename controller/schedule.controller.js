@@ -3731,32 +3731,54 @@ function updateAccountData(methodParam, tpoolconn, callback) {
     });
 }
 
-exports.fullStockSync =async function(req,res,tpoolconn,redirectParam,callback) {
+exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
     let source = redirectParam.source || req.body.source;
     let log_idn = redirectParam.log_idn;
-    let poolName = redirectParam.poolName;
     var outJson={};
 
-    let fileIdn = req.body.fileIdn || '';
-    let fileNme = req.body.fileNme || '';
-    let addl_attr = req.body.addl_attr || '';
     let portal = req.body.portal || '';
-    let method = req.body.method || '';
-    let stoneListStr = req.body.stoneListStr || '';
-    let status = req.body.status || '';
+    let process = req.body.process || '';
 
-    let methodParam = {};
-    methodParam["coIdn"] = coIdn;
-    methodParam["fileIdn"] = fileIdn;
-    methodParam["fileNme"] = fileNme;
-    methodParam["addl_attr"] = addl_attr;
-    methodParam["portal"] = portal;
-    methodParam["method"] = method;
-    methodParam["stoneListStr"] = stoneListStr;
-    methodParam["status"] = status;
-    let syncResult = await execGetSyncDtl(methodParam,tpoolconn);
-    callback(null,syncResult);     
+    let fmt = {};
+    let params = [];
+    var sql = "Select o.co_idn, o.refresh_min,file_idn from portal_sync p, file_options o \n"+
+        "where p.nme = $1 and o.portal_idn = p.portal_idn and o.stt=1 \n"+
+        "and COALESCE(next_refresh_ts,CURRENT_TIMESTAMP) <= current_timestamp  ";
+
+    params.push(portal);
+    //console.log(sql);
+    //console.log(params);
+    coreDB.executeTransSql(tpoolconn, sql, params, fmt,async function (error, result) {
+        if (error) {
+            console.log(error);
+            outJson["status"] = "FAIL";
+            outJson["message"] = "Error In PortalSync Method!";
+            callback(null, outJson);
+        } else {
+            var len = result.rows.length;
+            if (len > 0) {
+                for(let i=0;i<len;i++){
+                    let data = result.rows[i] || {};
+                    let methodParam = {};
+                    methodParam["coIdn"] = data.co_idn;
+                    methodParam["fileIdn"] = data.file_idn;
+                    methodParam["refresh_min"] = data.refresh_min;
+                    methodParam["portal"] = portal;
+                    methodParam["process"] = process;
+                    methodParam["scheduleYN"] = "Y";
+                    let syncResult = await execGetSyncDtl(methodParam,tpoolconn);
+                }
+                outJson["status"] = "SUCCESS";
+                outJson["message"] = "SUCCESS";
+                callback(null, outJson);
+            } else {
+                outJson["status"] = "FAIL";
+                outJson["message"] = "Sorry no result found";
+                callback(null, outJson);
+            }  
+        }
+    });  
 }
 
 function execGetSyncDtl(methodParam, tpoolconn) {
@@ -3774,28 +3796,25 @@ function execGetSyncDtl(methodParam, tpoolconn) {
 async function getSyncDtl(tpoolconn,redirectParam,callback) {
     let coIdn = redirectParam.coIdn;
     let fileIdn = redirectParam.fileIdn || '';
-    let fileNme = redirectParam.fileNme || '';
-    let addl_attr = redirectParam.addl_attr || '';
     let portal = redirectParam.portal || '';
-    let method = redirectParam.method || '';
-    let stoneListStr = redirectParam.stoneListStr || '';
-    let status = redirectParam.status || '';
+    let process = redirectParam.process || '';
+    let refresh_min = redirectParam.refresh_min || '';
+    let scheduleYN = redirectParam.scheduleYN || "N";
     var outJson={};
  
     let methodParam = {};
     methodParam["coIdn"] = coIdn;
     methodParam["fileIdn"] = fileIdn;
-    methodParam["fileNme"] = fileNme;
-    methodParam["addl_attr"] = addl_attr;
+    methodParam["process"] = process;
     let fileResult = await execGetStockFile(methodParam,tpoolconn);
     if(fileResult.status == 'SUCCESS'){
         let fileObj = fileResult["result"] || {};
         let username = fileObj["username"];
         let password = fileObj["password"];
-        let filePath = fileObj["filePath"];
-        let filename = fileObj["filename"];
+        let filePath = fileObj["filePath"] || '';
+        let filename = fileObj["filename"] || '';
 
-        if(portal == 'marketDiamond'){
+        if(portal == 'marketd'){
             let jwt = '';
             let clientSecret = '';
             methodParam = {};
@@ -3812,7 +3831,7 @@ async function getSyncDtl(tpoolconn,redirectParam,callback) {
             } else {
                 callback(null,authResult);       
             }
-            if(method == 'uploadInventory'){
+            if(process == 'refresh'){
                 methodParam = {};
                 methodParam["jwt"] =jwt;
                 methodParam["clientSecret"] = clientSecret;
@@ -3823,29 +3842,33 @@ async function getSyncDtl(tpoolconn,redirectParam,callback) {
                     outJson["result"]=uploadResult["result"];
                     outJson["status"]="SUCCESS";
                     outJson["message"]="File Uploaded Successfully!";  
-                    callback(null,outJson);  
                 } else {
                     callback(null,uploadResult);  
                 }
-            } else if(method == 'updateStatus'){
+            } else if(process == 'status'){
                 methodParam = {};
                 methodParam["jwt"] =jwt;
                 methodParam["clientSecret"] = clientSecret;
-                methodParam["stoneListStr"] = stoneListStr;
-                methodParam["status"] = status;
+                //methodParam["stoneListStr"] = stoneListStr;
+                //methodParam["status"] = status;
                 let statusResult = await execGetUpdateStatus(methodParam);
                 if(statusResult.status == 'SUCCESS'){ 
                     outJson["result"]=statusResult["result"];
                     outJson["status"]="SUCCESS";
                     outJson["message"]="Stones Status Updated Successfully!";  
-                    callback(null,outJson);  
                 } else {
                     callback(null,statusResult);  
                 }
-            }  else if(method == 'deleteStone'){
+            }  else if(method == 'delete'){
                
             }
-        }           
+        }  
+        methodParam = {};
+        methodParam["fileIdn"] =fileIdn;
+        methodParam["refresh_min"] = refresh_min;
+        methodParam["scheduleYN"] = scheduleYN;
+        let intervalResult = await execUpdateInterval(methodParam,tpoolconn);
+        callback(null,outJson);       
     } else {
         callback(null,fileResult);  
     }      
@@ -3866,18 +3889,16 @@ function execGetStockFile(methodParam, tpoolconn) {
 async function getStockFile(tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
     var fileIdn = redirectParam.fileIdn || '';
-    var fileNme = redirectParam.fileNme || '';
-    let addl_attr = redirectParam.addl_attr || '';
+    let process = redirectParam.process;
     var paramJson={};  
     var outJson={};
     var now = new Date();
     var dte=dateFormat(now, "ddmmmyyyy_hMMss");
     let resultFinal = {};
 
-    if(fileIdn != '' || fileNme != ''){ 
+    if(fileIdn != ''){ 
         paramJson={};    
         paramJson["fileIdn"]=fileIdn;
-        paramJson["fileNme"]=fileNme;
         paramJson["coIdn"]=coIdn;
         let fileOptionResult = await execGetFileOptionsDtl(paramJson,tpoolconn);
         if(fileOptionResult.status == 'SUCCESS'){
@@ -3886,95 +3907,99 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
             let fileExtension = fileOptionDtl["fileExtension"] || 'csv';
             let key_mapping = fileOptionDtl["key_mapping"];
             fileIdn = fileOptionDtl["file_idn"];
-            let searchattr = fileOptionDtl["searchattr"] || '';
+            let addl_attr = fileOptionDtl["searchattr"] || '';
             resultFinal["username"] = fileOptionDtl["username"];
             resultFinal["password"] = fileOptionDtl["password"];
 
-            if(addl_attr == '')
-                addl_attr = searchattr;
+            if(process == 'refresh'){
+                if(filename.indexOf("~datetime~") > -1)
+                    filename = replaceall("~datetime~",dte, filename);
+                else 
+                    filename = filename+"_"+dte;
+            
+                paramJson={};    
+                paramJson["fileIdn"]=fileIdn;
+                paramJson["filemap"]=key_mapping;
+                paramJson["addl_attr"]=addl_attr;
+                let fileArrayResult = await execGenFileProcedure(paramJson,tpoolconn);
+                //fileArrayResult["status"] = "SUCCESS";
+                if(fileArrayResult.status == 'SUCCESS'){
+                    let resultView = fileArrayResult["resultView"] || [];
+                    let packetDetails = fileArrayResult["packetDetails"] || [];
+                    let resultViewlen = resultView.length;
+                    let attrDataType = {};
 
-            if(filename.indexOf("~datetime~") > -1)
-                filename = replaceall("~datetime~",dte, filename);
-            else 
-                filename = filename+"_"+dte;
-        
-            paramJson={};    
-            paramJson["fileIdn"]=fileIdn;
-            paramJson["filemap"]=key_mapping;
-            paramJson["addl_attr"]=addl_attr;
-            let fileArrayResult = await execGenFileProcedure(paramJson,tpoolconn);
-            //fileArrayResult["status"] = "SUCCESS";
-            if(fileArrayResult.status == 'SUCCESS'){
-                let resultView = fileArrayResult["resultView"] || [];
-                let packetDetails = fileArrayResult["packetDetails"] || [];
-                let resultViewlen = resultView.length;
-                let attrDataType = {};
-
-                let packetDtlList = [];
-                for(let i=0;i<packetDetails.length;i++){
-                    let pktdtl = packetDetails[i] || [];
-                    let packetDtl = {};
-                    for(let j=0;j<resultViewlen;j++){
-                        let attr = resultView[j];
-                        let attrVal = pktdtl[j] || '';
-                        packetDtl[attr] = attrVal;
-                    }
-                    packetDtlList.push(packetDtl);
-                }
-
-                //console.log("fileExtension",fileExtension)
-                //console.log("filename",filename)
-                let filePath = "";
-                if(fileExtension == 'excel'){
-                    filename = filename+'.xlsx';
-                    filePath = "files/"+filename;
-                    paramJson = {};
-                    paramJson["resultView"] = resultView;
-                    paramJson["pktDetailsList"] = packetDtlList;
-                    paramJson["attrDataType"] = attrDataType;
-                    paramJson["filename"] = filename;
-                    let excelResult = await execSaveExcel(paramJson,tpoolconn);
-                    if(excelResult.status == 'SUCCESS'){
-                        resultFinal["filename"] = filename;
-                        resultFinal["filePath"] = filePath;
-                        outJson["result"]=resultFinal;
-                        outJson["status"]="SUCCESS";
-                        outJson["message"]="SUCCESS";
-                        callback(null,outJson);
-                    } else {
-                        callback(null,excelResult);
-                    }
-                } else {
-                    filename = filename+'.csv';   
-                    filePath = "files/"+filename;               
-                    const json2csvParser = new Json2csvParser({ resultView });
-                    const csv = json2csvParser.parse(packetDtlList);
-                    //console.log(csv)
-                    fs.writeFile('files/'+filename, csv,async function(err) {
-                       if (err) {
-                            console.log("error",err)
-                            outJson["result"]=resultFinal;
-                            outJson["status"]="FAIL";
-                            outJson["message"]="CSV Download Fail";
-                            callback(null,outJson);
+                    let packetDtlList = [];
+                    for(let i=0;i<packetDetails.length;i++){
+                        let pktdtl = packetDetails[i] || [];
+                        let packetDtl = {};
+                        for(let j=0;j<resultViewlen;j++){
+                            let attr = resultView[j];
+                            let attrVal = pktdtl[j] || '';
+                            packetDtl[attr] = attrVal;
                         }
-                        resultFinal["filename"] = filename;
-                        resultFinal["filePath"] = filePath;
-                        outJson["result"]=resultFinal;
-                        outJson["status"]="SUCCESS";
-                        outJson["message"]="SUCCESS";
-                        callback(null,outJson);
-                    });
-                }                                                    
+                        packetDtlList.push(packetDtl);
+                    }
+
+                    //console.log("fileExtension",fileExtension)
+                    //console.log("filename",filename)
+                    let filePath = "";
+                    if(fileExtension == 'excel'){
+                        filename = filename+'.xlsx';
+                        filePath = "files/"+filename;
+                        paramJson = {};
+                        paramJson["resultView"] = resultView;
+                        paramJson["pktDetailsList"] = packetDtlList;
+                        paramJson["attrDataType"] = attrDataType;
+                        paramJson["filename"] = filename;
+                        let excelResult = await execSaveExcel(paramJson,tpoolconn);
+                        if(excelResult.status == 'SUCCESS'){
+                            resultFinal["filename"] = filename;
+                            resultFinal["filePath"] = filePath;
+                            outJson["result"]=resultFinal;
+                            outJson["status"]="SUCCESS";
+                            outJson["message"]="SUCCESS";
+                            callback(null,outJson);
+                        } else {
+                            callback(null,excelResult);
+                        }
+                    } else {
+                        filename = filename+'.csv';   
+                        filePath = "files/"+filename;               
+                        const json2csvParser = new Json2csvParser({ resultView });
+                        const csv = json2csvParser.parse(packetDtlList);
+                        //console.log(csv)
+                        fs.writeFile('files/'+filename, csv,async function(err) {
+                        if (err) {
+                                console.log("error",err)
+                                outJson["result"]=resultFinal;
+                                outJson["status"]="FAIL";
+                                outJson["message"]="CSV Download Fail";
+                                callback(null,outJson);
+                            }
+                            resultFinal["filename"] = filename;
+                            resultFinal["filePath"] = filePath;
+                            outJson["result"]=resultFinal;
+                            outJson["status"]="SUCCESS";
+                            outJson["message"]="SUCCESS";
+                            callback(null,outJson);
+                        });
+                    }                                                    
+                } else {
+                    callback(null,fileArrayResult);
+                }
             } else {
-                callback(null,fileArrayResult);
-            } 
+                outJson["result"]=resultFinal;
+                outJson["status"]="SUCCESS";
+                outJson["message"]="SUCCESS";
+                callback(null,outJson);
+            }   
         } else {
             callback(null,fileOptionResult);
         }   
-    } else if(fileIdn == '' || fileNme == ''){
+    } else if(fileIdn == ''){
         outJson["status"]="FAIL";
-        outJson["message"]="Please Verify FileIdn/FileName Parameter";
+        outJson["message"]="Please Verify FileIdn Parameter";
         callback(null,outJson);
     } 
 }
@@ -4277,7 +4302,7 @@ function getAuthenticate(paramJson, callback){
         if (!error && response.statusCode == 200) {
             //console.log("body"+body); // Print the shortened url.
             let info = JSON.parse(body);
-            //console.log(info);
+            console.log(info);
             outJson["result"] = info;
             outJson["message"]="SUCCESS";
             outJson["status"]="SUCCESS";
@@ -4339,7 +4364,7 @@ function getUploadFile(paramJson, callback){
         //console.log(response );
         //console.log(response.message );
         let info = JSON.parse(body);
-        //console.log(info);
+        console.log(info);
         if (!error && response.statusCode == 200) {
             outJson["result"] = info;
             outJson["message"]="SUCCESS";
@@ -4407,4 +4432,111 @@ function getUpdateStatus(paramJson, callback){
             callback(null,outJson);   
         }
     }); 
+}
+
+function execUpdateInterval(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        updateInterval(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+function updateInterval(tpoolconn, paramJson, callback) {
+    var fileIdn = paramJson.fileIdn || '';
+    var refresh_min = paramJson.refresh_min || 0;
+    let scheduleYN = paramJson.scheduleYN || "N";
+    let outJson = {};
+    let list = [];
+
+    if (fileIdn != '') {
+        let params = [];
+        let fmt = {};
+        let conQ = '';
+        let cnt = 0;
+        if(scheduleYN == "Y"){
+            cnt++;
+            conQ = ",next_refresh_ts =  current_timestamp + ($"+cnt+" ||' minutes')::interval \n";
+            params.push(refresh_min);
+        }
+        cnt++;
+        let query = "update file_options set last_refresh_ts=current_timestamp \n"+ conQ +
+        "where file_idn = $"+cnt;
+        
+        params.push(fileIdn);
+
+        //console.log(query);
+        //console.log(params);
+        coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
+            if (error) {
+                console.log(error);
+                outJson["result"] = '';
+                outJson["status"] = "FAIL";
+                outJson["message"] = "Update Interval Fail To Execute Query!";
+                callback(null, outJson);
+            } else {
+                let rowCount = result.rowCount;
+                if (rowCount > 0) {
+                    outJson["status"] = "SUCCESS";
+                    outJson["message"] = "SUCCESS";
+                    callback(null, outJson);
+                } else {
+                    outJson["status"] = "FAIL";
+                    outJson["message"] = "Failed to update interval";
+                    callback(null, outJson);
+                }
+            }
+        });
+    } else if (fileIdn == '') {
+        outJson["result"] = '';
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify File Idn Parameter";
+        callback(null, outJson);
+    }
+}
+
+exports.sendAutoReviseMail =function(req,res,tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    let source = redirectParam.source || req.body.source;
+    let log_idn = redirectParam.log_idn;
+    let poolName = redirectParam.poolName;
+    let outJson = {};
+
+    let processNme = req.body.processNme || 'auto_revise';
+    let intervalTime = req.body.intervalTime || '15';
+    var poolsList = require('qaq-core-db').poolsList;
+    var pool = poolsList[poolName] || '';
+    if (pool != '') {
+        coreDB.getTransPoolConnect(pool, async function (error, tpoolconn) {
+            if (error) {
+                outJson["result"] = '';
+                outJson["status"] = "FAIL";
+                outJson["message"] = "Fail To Get Conection!";
+                callback(null, outJson);
+            } else {
+                //console.log("mail Sending")
+                let methodParamlocal = {};
+                methodParamlocal["processNme"] = processNme;
+                methodParamlocal["coIdn"] = coIdn;
+                methodParamlocal["source"] = source;
+                methodParamlocal["intervalTime"] = intervalTime;
+                let result = await coreUtil.execSendReviseMail(methodParamlocal, tpoolconn);
+                coreDB.doTransRelease(tpoolconn);
+                //console.log("new connection realese");
+                outJson["result"] = '';
+                outJson["status"] = "SUCCESS";
+                outJson["message"] = "SUCCESS";
+                callback(null, outJson);
+            }
+        })
+    } else {
+        outJson["result"] = '';
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Fail To Get Conection!";
+        callback(null, outJson);
+    }
 }
