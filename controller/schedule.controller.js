@@ -11,6 +11,7 @@ var dateFormat = require('dateformat');
 const Json2csvParser = require('json2csv').Parser;
 const fs = require('fs');
 var excel = require('excel4node');
+const Client = require('ssh2-sftp-client');
 
 exports.pendingBidAllocMailApi = function(req,res,tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
@@ -3823,6 +3824,7 @@ async function getSyncDtl(redirectParam,callback) {
                 methodParam["coIdn"] = coIdn;
                 methodParam["fileIdn"] = fileIdn;
                 methodParam["process"] = process;
+                methodParam["portal"] = portal;
                 let fileResult = await execGetStockFile(methodParam,tpoolconn);
                 if(fileResult.status == 'SUCCESS'){
                     let fileObj = fileResult["result"] || {};
@@ -3840,7 +3842,17 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["coIdn"] = coIdn;
                         methodParam["process"] = process;
                         let syncResult = await execGetMarketSync(methodParam,tpoolconn);
-                    }  
+                    } else if(portal == 'polygon'){
+                        methodParam = {};
+                        methodParam["username"] =username;
+                        methodParam["password"] = password;
+                        methodParam["filePath"] = filePath;
+                        methodParam["filename"] = filename;
+                        methodParam["coIdn"] = coIdn;
+                        methodParam["process"] = process;
+                        let syncResult = await execGetPolygonSync(methodParam,tpoolconn);
+                    }
+
                     methodParam = {};
                     methodParam["fileIdn"] =fileIdn;
                     methodParam["refresh_min"] = refresh_min;
@@ -3936,6 +3948,42 @@ async function getMarketSync(tpoolconn,redirectParam,callback) {
     }
 }
 
+function execGetPolygonSync(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getPolygonSync(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+async function getPolygonSync(tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    var filePath = redirectParam.filePath;
+    let process = redirectParam.process;
+    let username = redirectParam.username;
+    let password = redirectParam.password;
+    let filename = redirectParam.filename;
+    var methodParam={};  
+    var outJson={};
+
+    if(process == 'refresh'){
+        methodParam = {};
+        methodParam["password"] = password;
+        methodParam["username"] = username;
+        methodParam["filePath"] = filePath;
+        methodParam["filename"] = filename;
+        getPolygonFtpFile(methodParam);
+        
+        outJson["status"]="SUCCESS";
+        outJson["message"]="File Uploaded Successfully!"; 
+        callback(null,outJson);     
+    } 
+}
+
 function execGetStockFile(methodParam, tpoolconn) {
     return new Promise(function (resolve, reject) {
         getStockFile(tpoolconn, methodParam, function (error, result) {
@@ -3952,10 +4000,13 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
     var fileIdn = redirectParam.fileIdn || '';
     let process = redirectParam.process;
+    let portal = redirectParam.portal;
     var paramJson={};  
     var outJson={};
     var now = new Date();
     var dte=dateFormat(now, "ddmmmyyyy_hMMss");
+    var nowPol = new Date();
+    var dtePol=dateFormat(nowPol,"yyyymmdd");
     let resultFinal = {};
 
     if(fileIdn != ''){ 
@@ -3974,11 +4025,16 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
             resultFinal["password"] = fileOptionDtl["password"];
 
             if(process == 'refresh'){
-                if(filename.indexOf("~datetime~") > -1)
-                    filename = replaceall("~datetime~",dte, filename);
-                else 
+                if(filename.indexOf("~datetime~") > -1){
+                    if(portal == 'polygon'){
+                        filename = replaceall("~datetime~",dtePol, filename);
+                    } else {
+                        filename = replaceall("~datetime~",dte, filename);
+                    }   
+                } else {
                     filename = filename+"_"+dte;
-            
+                }
+                   
                 paramJson={};    
                 paramJson["fileIdn"]=fileIdn;
                 paramJson["filemap"]=key_mapping;
@@ -4602,4 +4658,33 @@ exports.sendAutoReviseMail =function(req,res,tpoolconn,redirectParam,callback) {
         outJson["message"] = "Fail To Get Conection!";
         callback(null, outJson);
     }
+}
+
+function getPolygonFtpFile(paramJson){
+    let filePath = paramJson.filePath || '';
+    let filename = paramJson.filename || '';
+    let username = paramJson.username || '';
+    let password = paramJson.password || '';
+
+    const config = {
+        host: 'ftp.polygon.net',
+        port: 22,
+        username: username,
+        password: password
+    };
+      console.log(config)
+    let sftp = new Client;
+    
+    let data = fs.createReadStream(filePath);
+    let remote = '/'+filename;
+    sftp.connect(config)
+    .then(() => {
+        return sftp.put(data, remote);
+    })
+    .then(() => {
+        return sftp.end();
+    })
+    .catch(err => {
+        console.log(err.message);
+    });
 }
