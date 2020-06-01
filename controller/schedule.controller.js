@@ -3741,17 +3741,30 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
 
     let portal = req.body.portal || '';
     let process = req.body.process || '';
+    let days = req.body.days || '';
+    let minutes = req.body.minutes || '';
 
     let fmt = {};
     let params = [];
-    var sql = "Select o.co_idn, o.refresh_min,file_idn from portal_sync p, file_options o \n"+
-        "where p.nme = $1 and o.portal_idn = p.portal_idn and o.stt=1 \n";
+    var sql = "select p.nme, unnest(p.co_allow) cos, o.refresh_min,o.file_idn,p.updates_min \n"+
+        "from portal_sync p, file_options o  where \n"+
+        "  o.portal_idn = p.portal_idn and o.stt=1 \n";
+        let cnt = 0;
+        if(process != ''){
+            cnt++;
+            sql +=" and $"+cnt+" = ANY(p.methods) \n";
+            params.push(process);
+        }
+        if(portal != ''){
+            cnt++;
+            sql +=" and p.nme=$"+cnt+" \n";
+            params.push(portal);
+        }
         if(process == 'refresh'){
            sql +=  " and COALESCE(next_refresh_ts,CURRENT_TIMESTAMP) <= current_timestamp  ";
         }
+        sql +=" order by nme ";
         
-
-    params.push(portal);
     //console.log(sql);
     //console.log(params);
     coreDB.executeTransSql(tpoolconn, sql, params, fmt,async function (error, result) {
@@ -3766,13 +3779,17 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
                 for(let i=0;i<len;i++){
                     let data = result.rows[i] || {};
                     let methodParam = {};
-                    methodParam["coIdn"] = data.co_idn;
+                    portal = data.nme;
+                    methodParam["coIdn"] = data.cos;
                     methodParam["fileIdn"] = data.file_idn;
                     methodParam["refresh_min"] = data.refresh_min;
+                    methodParam["updates_min"] = data.updates_min;
                     methodParam["portal"] = portal;
                     methodParam["process"] = process;
                     methodParam["scheduleYN"] = "Y";
                     methodParam["poolName"] = poolName;
+                    methodParam["days"] = days;
+                    methodParam["minutes"] = minutes;
                     let syncResult = execGetSyncDtl(methodParam);
                 }
                 outJson["status"] = "SUCCESS";
@@ -3807,6 +3824,9 @@ async function getSyncDtl(redirectParam,callback) {
     let refresh_min = redirectParam.refresh_min || '';
     let scheduleYN = redirectParam.scheduleYN || "N";
     let poolName = redirectParam.poolName;
+    let days = redirectParam.days || '';
+    let updates_min = redirectParam.updates_min || '';
+    let minutes =  redirectParam.minutes || ''
     var outJson={};
 
     var poolsList= require('qaq-core-db').poolsList;
@@ -3825,6 +3845,8 @@ async function getSyncDtl(redirectParam,callback) {
                 methodParam["fileIdn"] = fileIdn;
                 methodParam["process"] = process;
                 methodParam["portal"] = portal;
+                methodParam["minutes"] = minutes;
+                methodParam["days"] = days;
                 let fileResult = await execGetStockFile(methodParam,tpoolconn);
                 if(fileResult.status == 'SUCCESS'){
                     let fileObj = fileResult["result"] || {};
@@ -3832,6 +3854,8 @@ async function getSyncDtl(redirectParam,callback) {
                     let password = fileObj["password"];
                     let filePath = fileObj["filePath"] || '';
                     let filename = fileObj["filename"] || '';
+                    let deletePacketList = fileObj["deletePacketList"] || [];
+                    let statusMap = fileObj["statusMap"] || {};
 
                     if(portal == 'marketd'){
                         methodParam = {};
@@ -3841,6 +3865,8 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["filename"] = filename;
                         methodParam["coIdn"] = coIdn;
                         methodParam["process"] = process;
+                        methodParam["deletePacketList"] = deletePacketList;
+                        methodParam["statusMap"] = statusMap;
                         let syncResult = await execGetMarketSync(methodParam,tpoolconn);
                     } else if(portal == 'polygon'){
                         methodParam = {};
@@ -3851,6 +3877,15 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["coIdn"] = coIdn;
                         methodParam["process"] = process;
                         let syncResult = await execGetPolygonSync(methodParam,tpoolconn);
+                    } else if(portal == 'getd'){
+                        methodParam = {};
+                        methodParam["username"] =username;
+                        methodParam["password"] = password;
+                        methodParam["filePath"] = filePath;
+                        methodParam["filename"] = filename;
+                        methodParam["coIdn"] = coIdn;
+                        methodParam["process"] = process;
+                        let syncResult = await execGetDimondSync(methodParam,tpoolconn);
                     }
 
                     methodParam = {};
@@ -3858,6 +3893,7 @@ async function getSyncDtl(redirectParam,callback) {
                     methodParam["refresh_min"] = refresh_min;
                     methodParam["scheduleYN"] = scheduleYN;
                     methodParam["process"] = process;
+                    methodParam["updates_min"] = updates_min;
                     let intervalResult = await execUpdateInterval(methodParam,tpoolconn);
                     coreDB.doTransRelease(tpoolconn);
                     callback(null,outJson);       
@@ -3894,6 +3930,8 @@ async function getMarketSync(tpoolconn,redirectParam,callback) {
     let username = redirectParam.username;
     let password = redirectParam.password;
     let filename = redirectParam.filename;
+    let deletePacketList = redirectParam.deletePacketList || [];
+    let statusMap = redirectParam.statusMap || {};
     var methodParam={};  
     var outJson={};
 
@@ -3929,22 +3967,46 @@ async function getMarketSync(tpoolconn,redirectParam,callback) {
             callback(null,uploadResult);  
         }
     } else if(process == 'status'){
+        var statusKeys=Object.keys(statusMap) || [];
+        var statusKeyslen=statusKeys.length;
+        if(statusKeyslen > 0){
+            for(let i=0;i<statusKeyslen;i++){
+                let status = statusKeys[i];
+                //console.log("status",status);
+                let packetlist = statusMap[status] || [];
+                //console.log("packetlist",packetlist);
+                let stoneListStr = packetlist.toString();
+
+                methodParam = {};
+                methodParam["jwt"] =jwt;
+                methodParam["clientSecret"] = clientSecret;
+                methodParam["stoneListStr"] = stoneListStr;
+                methodParam["status"] = status;
+                let statusResult = await execGetMarketDUpdateStatus(methodParam);
+            }
+            outJson["status"]="SUCCESS";
+            outJson["message"]="Stones Status Updated Successfully!";  
+            callback(null,outJson); 
+        }  else {
+            outJson["status"] = "FAIL";
+            outJson["message"] = "Sorry no result found for status updation";
+            callback(null, outJson);
+        }
+    }  else if(process == 'delete'){
+        let stoneListStr = deletePacketList.toString();
         methodParam = {};
         methodParam["jwt"] =jwt;
         methodParam["clientSecret"] = clientSecret;
-        //methodParam["stoneListStr"] = stoneListStr;
-        //methodParam["status"] = status;
-        let statusResult = await execGetUpdateStatus(methodParam);
-        if(statusResult.status == 'SUCCESS'){ 
-            outJson["result"]=statusResult["result"];
+        methodParam["stoneListStr"] = stoneListStr;
+        let deleteResult = await execGetMarketDeletePkt(methodParam);
+        if(deleteResult.status == 'SUCCESS'){ 
+            outJson["result"]=deleteResult["result"];
             outJson["status"]="SUCCESS";
-            outJson["message"]="Stones Status Updated Successfully!";  
+            outJson["message"]="Stones Deleted Successfully!";  
             callback(null,outJson);  
         } else {
-            callback(null,statusResult);  
+            callback(null,deleteResult);  
         }
-    }  else if(method == 'delete'){
-        callback(null,outJson);
     }
 }
 
@@ -3961,6 +4023,42 @@ function execGetPolygonSync(methodParam, tpoolconn) {
 }
 
 async function getPolygonSync(tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    var filePath = redirectParam.filePath;
+    let process = redirectParam.process;
+    let username = redirectParam.username;
+    let password = redirectParam.password;
+    let filename = redirectParam.filename;
+    var methodParam={};  
+    var outJson={};
+
+    if(process == 'refresh'){
+        methodParam = {};
+        methodParam["password"] = password;
+        methodParam["username"] = username;
+        methodParam["filePath"] = filePath;
+        methodParam["filename"] = filename;
+        getPolygonFtpFile(methodParam);
+        
+        outJson["status"]="SUCCESS";
+        outJson["message"]="File Uploaded Successfully!"; 
+        callback(null,outJson);     
+    } 
+}
+
+function execGetDimondSync(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getDiamondSync(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+async function getDiamondSync(tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
     var filePath = redirectParam.filePath;
     let process = redirectParam.process;
@@ -4001,6 +4099,8 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
     var fileIdn = redirectParam.fileIdn || '';
     let process = redirectParam.process;
     let portal = redirectParam.portal;
+    let days = redirectParam.days || '';
+    let minutes = redirectParam.minutes || '';
     var paramJson={};  
     var outJson={};
     var now = new Date();
@@ -4106,12 +4206,41 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                 } else {
                     callback(null,fileArrayResult);
                 }
-            } else {
-                outJson["result"]=resultFinal;
-                outJson["status"]="SUCCESS";
-                outJson["message"]="SUCCESS";
-                callback(null,outJson);
-            }   
+            } else if(process == 'delete') {
+                paramJson={};    
+                paramJson["coIdn"]=coIdn;
+                paramJson["days"]=days;
+                let deleteResult = await execDeletePacketsProcedure(paramJson,tpoolconn);
+                if(deleteResult.status == 'SUCCESS'){
+                    let deletePacketList = deleteResult["deletePacketList"] || [];
+                    resultFinal["deletePacketList"] = deletePacketList;
+
+                    outJson["result"]=resultFinal;
+                    outJson["status"]="SUCCESS";
+                    outJson["message"]="SUCCESS";
+                    callback(null,outJson);   
+                } else {
+                    callback(null,deleteResult);
+                }
+            } else if(process == 'status') {
+                paramJson={};    
+                paramJson["coIdn"]=coIdn;
+                paramJson["minutes"]=minutes;
+                let statusResult = await execPacketStatusProcedure(paramJson,tpoolconn);
+                if(statusResult.status == 'SUCCESS'){
+                    let statusMap = statusResult["statusMap"] || {};
+                    //console.log("statusMap",statusMap);
+
+                    resultFinal["statusMap"] = statusMap;
+
+                    outJson["result"]=resultFinal;
+                    outJson["status"]="SUCCESS";
+                    outJson["message"]="SUCCESS";
+                    callback(null,outJson);   
+                } else {
+                    callback(null,statusResult);
+                }
+            }     
         } else {
             callback(null,fileOptionResult);
         }   
@@ -4185,6 +4314,128 @@ function genFileProcedure(tpoolconn, paramJson, callback) {
         outJson["result"] = '';
         outJson["status"] = "FAIL";
         outJson["message"] = "Please Verify File Idn Parameter";
+        callback(null, outJson);
+    }
+}
+
+function execDeletePacketsProcedure(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        deletePacketsProcedure(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+function deletePacketsProcedure(tpoolconn, paramJson, callback) {
+    let coIdn = paramJson.coIdn;
+    let days = paramJson.days;
+    let outJson = {};
+    let list = [];
+
+    if (days != '') {
+        let params = [];
+        let fmt = {};
+        let query = "select get_portal_delete($1, $2) packetlist";
+        params.push(coIdn);
+        params.push(days);
+
+        //console.log(query);
+        //console.log(params);
+        coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
+            if (error) {
+                console.log(error);
+                outJson["result"] = '';
+                outJson["status"] = "FAIL";
+                outJson["message"] = "get_portal_delete Fail To Execute Query!";
+                callback(null, outJson);
+            } else {
+                let rowCount = result.rows.length;
+                if (rowCount > 0) {
+                    let deletePacketList = result.rows[0].packetlist;
+        
+                    outJson["deletePacketList"] = deletePacketList;
+                    outJson["status"] = "SUCCESS";
+                    outJson["message"] = "SUCCESS";
+                    callback(null, outJson);
+                } else {
+                    outJson["status"] = "FAIL";
+                    outJson["message"] = "Sorry no result found";
+                    callback(null, outJson);
+                }
+            }
+        });
+    } else if (days == '') {
+        outJson["result"] = '';
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify Days Parameter";
+        callback(null, outJson);
+    }
+}
+
+function execPacketStatusProcedure(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        packetStatusProcedure(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function packetStatusProcedure(tpoolconn, paramJson, callback) {
+    let coIdn = paramJson.coIdn;
+    let minutes = paramJson.minutes;
+    let outJson = {};
+
+    if (minutes != '') {
+        let params = [];
+        let fmt = {};
+        let query = "select get_portal_update($1, $2) packetlist";
+        params.push(coIdn);
+        params.push(minutes);
+
+        //console.log(query);
+        //console.log(params);
+        coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
+            if (error) {
+                console.log(error);
+                outJson["result"] = '';
+                outJson["status"] = "FAIL";
+                outJson["message"] = "get_portal_update Fail To Execute Query!";
+                callback(null, outJson);
+            } else {
+                let rowCount = result.rows.length;
+                if (rowCount > 0) {
+                    let statusMap = {};
+                    var packetlist = result.rows[0].packetlist || [];
+                    for (let i = 0; i < packetlist.length; i++) {
+                        let rows = packetlist[i];
+                        let status  = rows["status"];
+                        let pkt_code = rows["pkt_code"];
+                        let list = statusMap[status] || [];
+                        list.push(pkt_code);
+                        statusMap[status] = list;
+                    }
+                    outJson["statusMap"] = statusMap;
+                    outJson["status"] = "SUCCESS";
+                    outJson["message"] = "SUCCESS";
+                    callback(null, outJson);
+                } else {
+                    outJson["status"] = "FAIL";
+                    outJson["message"] = "Sorry no result found";
+                    callback(null, outJson);
+                }
+            }
+        });
+    } else if (minutes == '') {
+        outJson["result"] = '';
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify Minutes Parameter";
         callback(null, outJson);
     }
 }
@@ -4497,9 +4748,9 @@ function getUploadFile(paramJson, callback){
     }); 
 }
 
-function execGetUpdateStatus(methodParam) {
+function execGetMarketDUpdateStatus(methodParam) {
     return new Promise(function (resolve, reject) {
-        getUpdateStatus( methodParam,  function (error, result) {
+        getMarketDUpdateStatus( methodParam,  function (error, result) {
             if (error) {
                 reject(error);
             }
@@ -4508,7 +4759,7 @@ function execGetUpdateStatus(methodParam) {
     });
 }
 
-function getUpdateStatus(paramJson, callback){
+function getMarketDUpdateStatus(paramJson, callback){
     let stoneListStr = paramJson.stoneListStr || '';
     let clientSecret = paramJson.clientSecret || '';
     let jwt = paramJson.jwt || '';
@@ -4522,7 +4773,7 @@ function getUpdateStatus(paramJson, callback){
         'Authorization':"JWT " + jwt,
         'ContentType':'application/json'
     }
-
+    //console.log("formData",formData);
     var options = {
         url: 'https://qapi.market.diamonds/api/v1/diamond/'+clientSecret+'/update-status',
         method: 'POST',
@@ -4537,7 +4788,60 @@ function getUpdateStatus(paramJson, callback){
         //console.log(response );
         //console.log(response.message );
         let info = JSON.parse(body);
-        //console.log(info);
+        console.log(info);
+        if (!error && response.statusCode == 200) {
+            outJson["result"] = info;
+            outJson["message"]="SUCCESS";
+            outJson["status"]="SUCCESS";
+            callback(null,outJson);        
+       }else{
+            outJson["result"] = info;
+            outJson["message"]="Issue in API";
+            outJson["status"]="FAIL";
+            callback(null,outJson);   
+        }
+    }); 
+}
+
+function execGetMarketDeletePkt(methodParam) {
+    return new Promise(function (resolve, reject) {
+        getMarketDeletePkt( methodParam,  function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getMarketDeletePkt(paramJson, callback){
+    let stoneListStr = paramJson.stoneListStr || '';
+    let clientSecret = paramJson.clientSecret || '';
+    let jwt = paramJson.jwt || '';
+    let outJson = {};
+    let formData = {};
+    formData["vStnId"] = stoneListStr;
+
+    var headers = {
+        'Authorization':"JWT " + jwt,
+        'ContentType':'application/json'
+    }
+
+    var options = {
+        url: 'https://qapi.market.diamonds/api/v1/diamond/'+clientSecret+'/delete',
+        method: 'POST',
+        headers: headers,
+        form: formData 
+    };
+    
+    //console.log(options);
+    request(options,async function (error, response, body) {
+        //console.log(error);
+        //console.log("statusCode"+response.statusCode );
+        //console.log(response );
+        //console.log(response.message );
+        let info = JSON.parse(body);
+        console.log(info);
         if (!error && response.statusCode == 200) {
             outJson["result"] = info;
             outJson["message"]="SUCCESS";
@@ -4569,6 +4873,7 @@ function updateInterval(tpoolconn, paramJson, callback) {
     var refresh_min = paramJson.refresh_min || 0;
     let scheduleYN = paramJson.scheduleYN || "N";
     let process = paramJson.process;
+    let updates_min = paramJson.updates_min || 0;
     let outJson = {};
     let list = [];
 
@@ -4577,16 +4882,27 @@ function updateInterval(tpoolconn, paramJson, callback) {
         let fmt = {};
         let conQ = '';
         let cnt = 0;
-        if(scheduleYN == "Y"){
+        let query = "";
+        if(process == 'refresh') {
+            if(scheduleYN == "Y"){
+                cnt++;
+                conQ = ",next_refresh_ts =  current_timestamp + ($"+cnt+" ||' minutes')::interval \n";
+                params.push(refresh_min);
+            }
             cnt++;
-            conQ = ",next_refresh_ts =  current_timestamp + ($"+cnt+" ||' minutes')::interval \n";
-            params.push(refresh_min);
+            query = "update file_options set last_refresh_ts=current_timestamp \n"+ conQ +
+                "where file_idn = $"+cnt;
+            
+            params.push(fileIdn);
+        } else {
+            query = "update file_options set last_updates_ts=current_timestamp,\n"+
+                "next_updates_ts=current_timestamp + ($1 ||' minutes')::interval \n"+
+                "where file_idn = $2";
+
+            params.push(updates_min);
+            params.push(fileIdn);
         }
-        cnt++;
-        let query = "update file_options set last_refresh_ts=current_timestamp \n"+ conQ +
-        "where file_idn = $"+cnt;
-        
-        params.push(fileIdn);
+       
 
         //console.log(query);
         //console.log(params);
