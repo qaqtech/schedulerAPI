@@ -3856,6 +3856,7 @@ async function getSyncDtl(redirectParam,callback) {
                     let filename = fileObj["filename"] || '';
                     let deletePacketList = fileObj["deletePacketList"] || [];
                     let statusMap = fileObj["statusMap"] || {};
+                    let packetDetails = fileObj["packetDetails"] || [];
 
                     if(portal == 'marketd'){
                         methodParam = {};
@@ -3879,10 +3880,8 @@ async function getSyncDtl(redirectParam,callback) {
                         let syncResult = await execGetPolygonSync(methodParam,tpoolconn);
                     } else if(portal == 'getd'){
                         methodParam = {};
-                        methodParam["username"] =username;
-                        methodParam["password"] = password;
-                        methodParam["filePath"] = filePath;
-                        methodParam["filename"] = filename;
+                        methodParam["apikey"] =username;
+                        methodParam["packetDetails"] = packetDetails;
                         methodParam["coIdn"] = coIdn;
                         methodParam["process"] = process;
                         let syncResult = await execGetDimondSync(methodParam,tpoolconn);
@@ -4060,21 +4059,17 @@ function execGetDimondSync(methodParam, tpoolconn) {
 
 async function getDiamondSync(tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
-    var filePath = redirectParam.filePath;
+    var packetDetails = redirectParam.packetDetails;
     let process = redirectParam.process;
-    let username = redirectParam.username;
-    let password = redirectParam.password;
-    let filename = redirectParam.filename;
+    let apikey = redirectParam.apikey;
     var methodParam={};  
     var outJson={};
 
     if(process == 'refresh'){
         methodParam = {};
-        methodParam["password"] = password;
-        methodParam["username"] = username;
-        methodParam["filePath"] = filePath;
-        methodParam["filename"] = filename;
-        getPolygonFtpFile(methodParam);
+        methodParam["packetDetails"] = packetDetails;
+        methodParam["apikey"] = apikey;
+        let syncResult = await execGetUploadDiamondFile(methodParam);
         
         outJson["status"]="SUCCESS";
         outJson["message"]="File Uploaded Successfully!"; 
@@ -4116,7 +4111,7 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
         let fileOptionResult = await execGetFileOptionsDtl(paramJson,tpoolconn);
         if(fileOptionResult.status == 'SUCCESS'){
             let fileOptionDtl = fileOptionResult.result || {};
-            let filename = fileOptionDtl["filename"];
+            let filename = fileOptionDtl["filename"] || '';
             let fileExtension = fileOptionDtl["fileExtension"] || 'csv';
             let key_mapping = fileOptionDtl["key_mapping"];
             fileIdn = fileOptionDtl["file_idn"];
@@ -4181,7 +4176,7 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                         } else {
                             callback(null,excelResult);
                         }
-                    } else {
+                    } else if(fileExtension == 'csv'){
                         filename = filename+'.csv';   
                         filePath = "files/"+filename;               
                         const json2csvParser = new Json2csvParser({ resultView });
@@ -4202,7 +4197,14 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                             outJson["message"]="SUCCESS";
                             callback(null,outJson);
                         });
-                    }                                                    
+                    } else {
+                        console.log("packetLength",packetDtlList.length)
+                        resultFinal["packetDetails"] = packetDtlList;
+                        outJson["result"]=resultFinal;
+                        outJson["status"]="SUCCESS";
+                        outJson["message"]="SUCCESS";
+                        callback(null,outJson);
+                    }                                                   
                 } else {
                     callback(null,fileArrayResult);
                 }
@@ -4934,6 +4936,86 @@ function updateInterval(tpoolconn, paramJson, callback) {
     }
 }
 
+function getPolygonFtpFile(paramJson){
+    let filePath = paramJson.filePath || '';
+    let filename = paramJson.filename || '';
+    let username = paramJson.username || '';
+    let password = paramJson.password || '';
+
+    const config = {
+        host: 'ftp.polygon.net',
+        port: 22,
+        username: username,
+        password: password
+    };
+      console.log(config)
+    let sftp = new Client;
+    
+    let data = fs.createReadStream(filePath);
+    let remote = '/'+filename;
+    sftp.connect(config)
+    .then(() => {
+        return sftp.put(data, remote);
+    })
+    .then(() => {
+        return sftp.end();
+    })
+    .catch(err => {
+        console.log(err.message);
+    });
+}
+
+function execGetUploadDiamondFile(methodParam) {
+    return new Promise(function (resolve, reject) {
+        getUploadDiamondFile( methodParam,  function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getUploadDiamondFile(paramJson, callback){
+    let packetDetails = paramJson.packetDetails || [];
+    let apikey = paramJson.apikey || '';
+    let outJson = {};
+
+
+    var headers = {
+        'API-KEY':apikey,
+        'Content-Type':'application/json'
+    }
+
+    var options = {
+        url: 'https://get-diamonds.com/api/diamonds',
+        method: 'POST',
+        headers: headers,
+        form: packetDetails 
+    };
+    
+    //console.log(options);
+    request(options,async function (error, response, body) {
+        console.log("error",error);
+        //console.log("statusCode"+response.statusCode );
+            console.log(response );
+        //console.log(response.message );
+        let info = body//JSON.parse(body);
+        console.log(info);
+        if (!error && response.statusCode == 200) {
+            outJson["result"] = info;
+            outJson["message"]="SUCCESS";
+            outJson["status"]="SUCCESS";
+            callback(null,outJson);        
+        }else{
+            outJson["result"] = info;
+            outJson["message"]="Issue in API";
+            outJson["status"]="FAIL";
+            callback(null,outJson);   
+        }
+    }); 
+}
+
 exports.sendAutoReviseMail =function(req,res,tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
     let source = redirectParam.source || req.body.source;
@@ -4976,31 +5058,3 @@ exports.sendAutoReviseMail =function(req,res,tpoolconn,redirectParam,callback) {
     }
 }
 
-function getPolygonFtpFile(paramJson){
-    let filePath = paramJson.filePath || '';
-    let filename = paramJson.filename || '';
-    let username = paramJson.username || '';
-    let password = paramJson.password || '';
-
-    const config = {
-        host: 'ftp.polygon.net',
-        port: 22,
-        username: username,
-        password: password
-    };
-      console.log(config)
-    let sftp = new Client;
-    
-    let data = fs.createReadStream(filePath);
-    let remote = '/'+filename;
-    sftp.connect(config)
-    .then(() => {
-        return sftp.put(data, remote);
-    })
-    .then(() => {
-        return sftp.end();
-    })
-    .catch(err => {
-        console.log(err.message);
-    });
-}
