@@ -2771,6 +2771,8 @@ function mailSendSaleSummary(connection,paramJson,callback){
 exports.deleteImage =async function(req,res,tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
     var source = redirectParam.source;
+    let log_idn = redirectParam.log_idn;
+    let poolName = redirectParam.poolName;
     var cachedUrl = require('qaq-core-util').cachedUrl;
     var resultFinal={};  
     var outJson={};
@@ -2808,11 +2810,15 @@ exports.deleteImage =async function(req,res,tpoolconn,redirectParam,callback) {
         paramJson["from_days"] = from_days;
         paramJson["to_days"] = to_days;
         paramJson["dbmsDtldata"] = dbmsDtldata;
-        let pktResult = await execGetImagePacketDetails(paramJson,tpoolconn);
+        paramJson["log_idn"] = log_idn;
+        paramJson["poolName"] = poolName;
+        let pktResult =  execGetImagePacketDetails(paramJson);
         let endTime = new Date();
         pktResult["startTime"] = startTime;
         pktResult["endTime"] = endTime;
-        callback(null,pktResult);   
+        outJson["status"] = "SUCCESS";
+        outJson["message"] = "SUCCESS";
+        callback(null,outJson);   
     }  else if (resultViewlen == 0) {
         outJson["result"] = resultFinal;
         outJson["status"] = "FAIL";
@@ -2831,9 +2837,9 @@ exports.deleteImage =async function(req,res,tpoolconn,redirectParam,callback) {
     }    
 }
 
-function execGetImagePacketDetails(paramJson,tpoolconn){
+function execGetImagePacketDetails(paramJson){
     return new Promise(function(resolve,reject) {
-        getImagePacketDetails(tpoolconn,paramJson, function (error, result) {
+        getImagePacketDetails(paramJson, function (error, result) {
         if(error){  
           reject(error);
          }
@@ -2842,7 +2848,7 @@ function execGetImagePacketDetails(paramJson,tpoolconn){
     })
 }
 
-function getImagePacketDetails(tpoolconn,paramJson,callback) {
+function getImagePacketDetails(paramJson,callback) {
     var resultView = paramJson.resultView;
     let source = paramJson.source;
     var coIdn = paramJson.coIdn;
@@ -2851,6 +2857,8 @@ function getImagePacketDetails(tpoolconn,paramJson,callback) {
     let from_days = paramJson.from_days;
     let to_days = paramJson.to_days;
     let dbmsDtldata = paramJson.dbmsDtldata;
+    let log_idn = paramJson.log_idn;
+    let poolName = paramJson.poolName;
     let outJson = {};
     let fmt = {};
     let params=[];
@@ -2878,137 +2886,163 @@ function getImagePacketDetails(tpoolconn,paramJson,callback) {
    //             sql += " and sm.attr ->>  '" + attr + "' <> 'N' ";
    //         }
    //         sql +=" limit 1 "; 
-   
-   let sql = "select sm.pkt_code,sm.stock_idn,sm.status, \n"+
-        "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno \n";
-        for (let i = 0; i < resultViewlen; i++) {
-            let attr = resultView[i];
-            sql += ",COALESCE(sm.attr ->> '" + attr + "','N') " + attr;
-        }
-    sql += " from stock_m sm \n"+
-        "where 1 = 1 and stock_type = 'NR' \n"+ 
-        " and status in ('MKSD','BRC_MKSD') and sm.co_idn = $1 and sm.stt = 1 \n"+
-        " and length(sm.attr->> 'sal_dte') = 8 \n"+
-        "and cast(sm.attr ->> 'sal_dte' as int) between "+
-        "cast(to_char(current_date - "+to_days+",'yyyymmdd') as int) "+
-        "and cast(to_char(current_date -"+from_days+",'yyyymmdd') as int) \n";
-        //" and pkt_code = '1001199618'";
-        for (let i = 0; i < resultViewlen; i++) {
-            let attr = resultView[i];
-            if(i==0)
-                sql += " and (coalesce(sm.attr ->>  '" + attr + "', 'N') not in ('', 'N') \n";
-            else 
-                sql += " OR coalesce(sm.attr ->>  '" + attr + "', 'N') not in ('', 'N') \n";
-         }
-         sql +=" )";
+   var poolsList= require('qaq-core-db').poolsList;
+   var pool = poolsList[poolName] || '';
+   //console.log(pool)
+   if(pool!=''){
+       coreDB.getTransPoolConnect(pool,async function(error,tpoolconn){
+           if(error){
+               outJson["result"]='';
+               outJson["status"]="FAIL";
+               outJson["message"]="Fail To Get Conection!";
+               callback(null,outJson);
+           }else{
+                let sql = "select sm.pkt_code,sm.stock_idn,sm.status, \n"+
+                        "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno \n";
+                        for (let i = 0; i < resultViewlen; i++) {
+                            let attr = resultView[i];
+                            sql += ",COALESCE(sm.attr ->> '" + attr + "','N') " + attr;
+                        }
+                    sql += " from stock_m sm \n"+
+                        "where 1 = 1 and stock_type = 'NR' \n"+ 
+                        " and status in ('MKSD','BRC_MKSD') and sm.co_idn = $1 and sm.stt = 1 \n"+
+                        " and length(sm.attr->> 'sal_dte') = 8 \n"+
+                        "and cast(sm.attr ->> 'sal_dte' as int) between "+
+                        "cast(to_char(current_date - "+to_days+",'yyyymmdd') as int) "+
+                        "and cast(to_char(current_date -"+from_days+",'yyyymmdd') as int) \n";
+                        //" and pkt_code = '1001199618'";
+                        for (let i = 0; i < resultViewlen; i++) {
+                            let attr = resultView[i];
+                            if(i==0)
+                                sql += " and (coalesce(sm.attr ->>  '" + attr + "', 'N') not in ('', 'N') \n";
+                            else 
+                                sql += " OR coalesce(sm.attr ->>  '" + attr + "', 'N') not in ('', 'N') \n";
+                        }
+                        sql +=" )";
 
-         //sql +=" limit 1 ";
+                        //sql +=" limit 1 ";
 
-    params.push(coIdn);
-    
-    //console.log(sql);
-    //console.log(params);
-    coreDB.executeTransSql(tpoolconn,sql,params,fmt,async function(error,result){
-        if(error){
-            console.log(error);
-            outJson["status"]="FAIL";
-            outJson["message"]="Error In getImagePacketDetails Method!"+error.message;
-            console.log(outJson);
-            callback(null,outJson);
-        }else{
-            var len=result.rows.length;
-            //console.log(len);
-            if(len>0){
-                for(let k=0;k<len;k++){
-                    let resultRows = result.rows[k];
-                    let map = {};
-                    let imageMap = {};
-                    let responceMap = {};
-                    responceMap["pkt_code"] = resultRows.pkt_code;
-                    map["pkt_code"] = resultRows.pkt_code;
-                    map["stock_idn"] = resultRows.stock_idn;
-                    map["status"] = resultRows.status;
-                    let vnm = resultRows.vnm;
-                    //console.log("vnm",vnm);
-                    let certno = resultRows.certno;
-                    let stock_idn = resultRows.stock_idn;
-                    let resultViewMap = {};
-                    for (let j = 0; j < resultViewlen; j++) {
-                        let attr = resultView[j];
-                        //console.log("attr",attr);
-                        let attrVal = resultRows[attr] || '';
-                        if(attrVal != '' && attrVal != 'N' && attrVal != null){
-                            let imageUrlVal = resultViewDtl[attr];
-                            imageUrlVal = replaceall("vnm", vnm, imageUrlVal);
-                            imageUrlVal = replaceall("cert_no", certno, imageUrlVal);
-                            imageMap[attr] = imageUrlVal;
-                            let folderName = vnm+"/"
-                            let s3url = dbmsDtldata.s3url;
-                            let fileResult = {};
-                            if(imageUrlVal.indexOf(folderName) > -1){
-                                let folderpath = basicPathMap[attr];
-                                folderpath = replaceall(s3url,"",folderpath);
-                                folderpath = replaceall("/","",folderpath);
-                                //folderName = replaceall("/","",folderName);
-                                folderpath = folderpath +"/"+folderName;
-                                //console.log("folderpath",folderpath);
-                                let methodParam = {};
-                                methodParam["folderName"] = folderpath;
-                                methodParam["dbmsDtldata"] = dbmsDtldata;
-                                fileResult = await execDeleteFolder(methodParam);
-                            } else {
-                                //console.log("before",imageUrlVal);
-                                imageUrlVal = replaceall(s3url+"/", "", imageUrlVal);
-                                //console.log("after",imageUrlVal);
-                                let methodParam = {};
-                                methodParam["imageUrl"] = imageUrlVal;
-                                methodParam["dbmsDtldata"] = dbmsDtldata;
-                                fileResult = await execDeleteFile(methodParam);
+                    params.push(coIdn);
+                    
+                    //console.log(sql);
+                    //console.log(params);
+                    coreDB.executeTransSql(tpoolconn,sql,params,fmt,async function(error,result){
+                        if(error){
+                            coreDB.doTransRelease(tpoolconn);
+                            console.log(error);
+                            outJson["status"]="FAIL";
+                            outJson["message"]="Error In getImagePacketDetails Method!"+error.message;
+                            console.log(outJson);
+                            callback(null,outJson);
+                        }else{
+                            var len=result.rows.length;
+                            //console.log(len);
+                            if(len>0){
+                                for(let k=0;k<len;k++){
+                                    let resultRows = result.rows[k];
+                                    let map = {};
+                                    let imageMap = {};
+                                    let responceMap = {};
+                                    responceMap["pkt_code"] = resultRows.pkt_code;
+                                    map["pkt_code"] = resultRows.pkt_code;
+                                    map["stock_idn"] = resultRows.stock_idn;
+                                    map["status"] = resultRows.status;
+                                    let vnm = resultRows.vnm;
+                                    //console.log("vnm",vnm);
+                                    let certno = resultRows.certno;
+                                    let stock_idn = resultRows.stock_idn;
+                                    let resultViewMap = {};
+                                    for (let j = 0; j < resultViewlen; j++) {
+                                        let attr = resultView[j];
+                                        //console.log("attr",attr);
+                                        let attrVal = resultRows[attr] || '';
+                                        if(attrVal != '' && attrVal != 'N' && attrVal != null){
+                                            let imageUrlVal = resultViewDtl[attr];
+                                            imageUrlVal = replaceall("vnm", vnm, imageUrlVal);
+                                            imageUrlVal = replaceall("cert_no", certno, imageUrlVal);
+                                            imageMap[attr] = imageUrlVal;
+                                            let folderName = vnm+"/"
+                                            let s3url = dbmsDtldata.s3url;
+                                            let fileResult = {};
+                                            if(imageUrlVal.indexOf(folderName) > -1){
+                                                let folderpath = basicPathMap[attr];
+                                                folderpath = replaceall(s3url,"",folderpath);
+                                                folderpath = replaceall("/","",folderpath);
+                                                //folderName = replaceall("/","",folderName);
+                                                folderpath = folderpath +"/"+folderName;
+                                                //console.log("folderpath",folderpath);
+                                                let methodParam = {};
+                                                methodParam["folderName"] = folderpath;
+                                                methodParam["dbmsDtldata"] = dbmsDtldata;
+                                                fileResult = await execDeleteFolder(methodParam);
+                                            } else {
+                                                //console.log("before",imageUrlVal);
+                                                imageUrlVal = replaceall(s3url+"/", "", imageUrlVal);
+                                                //console.log("after",imageUrlVal);
+                                                let methodParam = {};
+                                                methodParam["imageUrl"] = imageUrlVal;
+                                                methodParam["dbmsDtldata"] = dbmsDtldata;
+                                                fileResult = await execDeleteFile(methodParam);
+                                            }
+                                            
+                    
+                                            imageUrlVal = replaceall(basicPathMap[attr], "", imageUrlVal);                        
+                                            //console.log(fileResult.status,"fileResult",fileResult.message);
+                                            //console.log("imageUrlVal",imageUrlVal);
+                                            responceMap[attr+"_count"] = 0;
+                                            if(fileResult.status == 'SUCCESS'){
+                                                resultViewMap[attr] = 'N';
+                                                responceMap[attr+"_count"] = fileResult.result || 0;
+                                            } else {
+                                                resultViewMap[attr] = imageUrlVal;
+                                            }
+                                            map[attr] = attrVal; 
+                                        }                      
+                                    }
+                                    var resultViewMapKeys=Object.keys(resultViewMap) || [];
+                                    var resultViewMapKeyslen=resultViewMapKeys.length;
+                                    //console.log("resultViewMapKeys",resultViewMapKeys);
+                                    if(resultViewMapKeyslen > 0){
+                                        let methodParamLocal = {};
+                                        methodParamLocal["resultViewMap"] = resultViewMap;
+                                        methodParamLocal["coIdn"] = coIdn;
+                                        methodParamLocal["stock_idn"] = stock_idn;
+                                        let stockResult = await execUpdateStockM(methodParamLocal,tpoolconn);
+
+                                    }
+                                    list.push(map);
+                                    resultViewList.push(imageMap);
+                                    responceList.push(responceMap);
+                                }
+                                let dtl = {};
+                                dtl["deleteImageList"] = responceList;
+                                let methodParams = {};
+                                methodParams["logDetails"] = dtl;
+                                methodParams["log_idn"] = log_idn;
+                                let logResult = await execUpdateScheduleLog(methodParams,tpoolconn);
+                                //outJson["resultViewList"]=resultViewList;
+                                //outJson["result"]=list;
+                                coreDB.doTransRelease(tpoolconn);
+                                outJson["result"]=responceList;
+                                outJson["status"]="SUCCESS";
+                                outJson["message"]="SUCCESS";
+                                callback(null,outJson);
+                            }else{
+                                coreDB.doTransRelease(tpoolconn);
+                                outJson["status"] = "FAIL";
+                                outJson["message"] = "Sorry no result found";
+                                callback(null,outJson);
                             }
-                            
-    
-                            imageUrlVal = replaceall(basicPathMap[attr], "", imageUrlVal);                        
-                            //console.log(fileResult.status,"fileResult",fileResult.message);
-                            //console.log("imageUrlVal",imageUrlVal);
-                            responceMap[attr+"_count"] = 0;
-                            if(fileResult.status == 'SUCCESS'){
-                                resultViewMap[attr] = 'N';
-                                responceMap[attr+"_count"] = fileResult.result || 0;
-                            } else {
-                                resultViewMap[attr] = imageUrlVal;
-                            }
-                            map[attr] = attrVal; 
-                        }                      
-                    }
-                    var resultViewMapKeys=Object.keys(resultViewMap) || [];
-                    var resultViewMapKeyslen=resultViewMapKeys.length;
-                    //console.log("resultViewMapKeys",resultViewMapKeys);
-                    if(resultViewMapKeyslen > 0){
-                        let methodParamLocal = {};
-                        methodParamLocal["resultViewMap"] = resultViewMap;
-                        methodParamLocal["coIdn"] = coIdn;
-                        methodParamLocal["stock_idn"] = stock_idn;
-                        let stockResult = await execUpdateStockM(methodParamLocal,tpoolconn);
-
-                    }
-                    list.push(map);
-                    resultViewList.push(imageMap);
-                    responceList.push(responceMap);
+                        }
+                    });     
                 }
-
-                //outJson["resultViewList"]=resultViewList;
-                //outJson["result"]=list;
-                outJson["result"]=responceList;
-                outJson["status"]="SUCCESS";
-                outJson["message"]="SUCCESS";
-                callback(null,outJson);
-            }else{
-                outJson["status"] = "FAIL";
-                outJson["message"] = "Sorry no result found";
-                callback(null,outJson);
-            }
+            });
+        }else{
+            outJson["result"]='';
+            outJson["status"]="FAIL";
+            outJson["message"]="Fail To Get Conection!";
+            callback(null,outJson);
         }
-    });     
 }
 
 function execDeleteFile(methodParam) {
