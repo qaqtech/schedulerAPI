@@ -2879,24 +2879,26 @@ function getImagePacketDetails(tpoolconn,paramJson,callback) {
    //         }
    //         sql +=" limit 1 "; 
    
-   let sql = "select sm.pkt_code,sm.stock_idn,sm.status, "+
-        "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno ";
+   let sql = "select sm.pkt_code,sm.stock_idn,sm.status, \n"+
+        "sm.attr ->>'vnm' vnm , sm.attr ->>'certno' certno \n";
         for (let i = 0; i < resultViewlen; i++) {
             let attr = resultView[i];
             sql += ",COALESCE(sm.attr ->> '" + attr + "','N') " + attr;
         }
-    sql += " from stock_m sm "+
-        "where 1 = 1 and stock_type = 'NR' "+ 
-        " and status in ('MKSD','BRC_MKSD') and sm.co_idn = $1 and sm.stt = 1 "+
+    sql += " from stock_m sm \n"+
+        "where 1 = 1 and stock_type = 'NR' \n"+ 
+        " and status in ('MKSD','BRC_MKSD') and sm.co_idn = $1 and sm.stt = 1 \n"+
+        " and length(sm.attr->> 'sal_dte') = 8 \n"+
         "and cast(sm.attr ->> 'sal_dte' as int) between "+
         "cast(to_char(current_date - "+to_days+",'yyyymmdd') as int) "+
-        "and cast(to_char(current_date-"+from_days+",'yyyymmdd') as int) ";
+        "and cast(to_char(current_date -"+from_days+",'yyyymmdd') as int) \n";
+        //" and pkt_code = '1001199618'";
         for (let i = 0; i < resultViewlen; i++) {
             let attr = resultView[i];
             if(i==0)
-                sql += " and (coalesce(sm.attr ->>  '" + attr + "', 'N') not in ('', 'N') ";
+                sql += " and (coalesce(sm.attr ->>  '" + attr + "', 'N') not in ('', 'N') \n";
             else 
-                sql += " OR coalesce(sm.attr ->>  '" + attr + "', 'N') not in ('', 'N') ";
+                sql += " OR coalesce(sm.attr ->>  '" + attr + "', 'N') not in ('', 'N') \n";
          }
          sql +=" )";
 
@@ -2927,11 +2929,13 @@ function getImagePacketDetails(tpoolconn,paramJson,callback) {
                     map["stock_idn"] = resultRows.stock_idn;
                     map["status"] = resultRows.status;
                     let vnm = resultRows.vnm;
+                    //console.log("vnm",vnm);
                     let certno = resultRows.certno;
                     let stock_idn = resultRows.stock_idn;
                     let resultViewMap = {};
                     for (let j = 0; j < resultViewlen; j++) {
                         let attr = resultView[j];
+                        //console.log("attr",attr);
                         let attrVal = resultRows[attr] || '';
                         if(attrVal != '' && attrVal != 'N' && attrVal != null){
                             let imageUrlVal = resultViewDtl[attr];
@@ -2947,12 +2951,15 @@ function getImagePacketDetails(tpoolconn,paramJson,callback) {
                                 folderpath = replaceall("/","",folderpath);
                                 //folderName = replaceall("/","",folderName);
                                 folderpath = folderpath +"/"+folderName;
+                                //console.log("folderpath",folderpath);
                                 let methodParam = {};
                                 methodParam["folderName"] = folderpath;
                                 methodParam["dbmsDtldata"] = dbmsDtldata;
                                 fileResult = await execDeleteFolder(methodParam);
                             } else {
-                                imageUrlVal = replaceall(s3url, "", imageUrlVal);
+                                //console.log("before",imageUrlVal);
+                                imageUrlVal = replaceall(s3url+"/", "", imageUrlVal);
+                                //console.log("after",imageUrlVal);
                                 let methodParam = {};
                                 methodParam["imageUrl"] = imageUrlVal;
                                 methodParam["dbmsDtldata"] = dbmsDtldata;
@@ -3033,20 +3040,20 @@ function deleteFile(redirectParam, callback){
               {
                 Key: imageUrl// required
               }
-            ],
-          },
+            ]
+          }
       };
-
-    s3.deleteObject(param,function (err,data){
+	  
+	   s3.deleteObjects(param,function (err,data){
         if(err){
-            console.log("FAIL");
+            console.log("FAIL",err);
             outJson["status"] = "FAIL";
             outJson["message"] = "File deletion failed";
             callback(null, outJson);
         } else {
-            //console.log("SUCCESS");
+            console.log("data",data);
             let length = data.Deleted.length || 0;
-            outJson["count"] = length;
+            outJson["result"] = length; 
             outJson["status"] = "SUCCESS";
             outJson["message"] = "File deleted successfully";
             callback(null, outJson);
@@ -3761,7 +3768,7 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
             params.push(portal);
         }
         if(process == 'refresh'){
-           sql +=  " and COALESCE(next_refresh_ts,CURRENT_TIMESTAMP) <= current_timestamp  ";
+           sql +=  " and COALESCE(next_refresh_ts,CURRENT_TIMESTAMP) <= current_timestamp + interval '1 minute'  ";
         }
         sql +=" order by nme ";
         
@@ -3884,8 +3891,18 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["packetDetails"] = packetDetails;
                         methodParam["coIdn"] = coIdn;
                         methodParam["process"] = process;
+                        methodParam["deletePacketList"] = deletePacketList;
                         let syncResult = await execGetDimondSync(methodParam,tpoolconn);
-                    }
+                    } else if(portal == 'uni'){
+                        methodParam = {};
+                        methodParam["username"] =username;
+                        methodParam["password"] = password;
+                        methodParam["filePath"] = filePath;
+                        methodParam["filename"] = filename;
+                        methodParam["coIdn"] = coIdn;
+                        methodParam["process"] = process;
+                        let syncResult = await execGetUniSync(methodParam,tpoolconn);
+                    } 
 
                     methodParam = {};
                     methodParam["fileIdn"] =fileIdn;
@@ -4059,9 +4076,10 @@ function execGetDimondSync(methodParam, tpoolconn) {
 
 async function getDiamondSync(tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
-    var packetDetails = redirectParam.packetDetails;
+    var packetDetails = redirectParam.packetDetails || [];
     let process = redirectParam.process;
     let apikey = redirectParam.apikey;
+    let deletePacketList = redirectParam.deletePacketList || [];
     var methodParam={};  
     var outJson={};
 
@@ -4070,6 +4088,54 @@ async function getDiamondSync(tpoolconn,redirectParam,callback) {
         methodParam["packetDetails"] = packetDetails;
         methodParam["apikey"] = apikey;
         let syncResult = await execGetUploadDiamondFile(methodParam);
+        
+        outJson["status"]="SUCCESS";
+        outJson["message"]="File Uploaded Successfully!"; 
+        callback(null,outJson);     
+    } else if(process == 'delete'){
+        for(let i=0;i<deletePacketList.length;i++){
+            let stockIdn = deletePacketList[i];
+            methodParam = {};
+            methodParam["apikey"] =apikey;
+            methodParam["stockIdn"] = stockIdn;
+            let deleteResult = await execGetDiamondDeletePkt(methodParam);
+        }
+       
+        outJson["status"]="SUCCESS";
+        outJson["message"]="Stones Deleted Successfully!";  
+        callback(null,outJson);  
+    } 
+}
+
+function execGetUniSync(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getUniSync(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+async function getUniSync(tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    var filePath = redirectParam.filePath;
+    let process = redirectParam.process;
+    let username = redirectParam.username;
+    let password = redirectParam.password;
+    let filename = redirectParam.filename;
+    var methodParam={};  
+    var outJson={};
+
+    if(process == 'refresh'){
+        methodParam = {};
+        methodParam["password"] = password;
+        methodParam["username"] = username;
+        methodParam["filePath"] = filePath;
+        methodParam["filename"] = filename;
+        getUniFtpFile(methodParam);
         
         outJson["status"]="SUCCESS";
         outJson["message"]="File Uploaded Successfully!"; 
@@ -4965,6 +5031,35 @@ function getPolygonFtpFile(paramJson){
     });
 }
 
+function getUniFtpFile(paramJson){
+    let filePath = paramJson.filePath || '';
+    let filename = paramJson.filename || '';
+    let username = paramJson.username || '';
+    let password = paramJson.password || '';
+
+    const config = {
+        host: 'datastaging.uni.diamonds',
+        port: 22,
+        username: username,
+        password: password
+    };
+      console.log(config)
+    let sftp = new Client;
+    
+    let data = fs.createReadStream(filePath);
+    let remote = '/'+filename;
+    sftp.connect(config)
+    .then(() => {
+        return sftp.put(data, remote);
+    })
+    .then(() => {
+        return sftp.end();
+    })
+    .catch(err => {
+        console.log(err.message);
+    });
+}
+
 function execGetUploadDiamondFile(methodParam) {
     return new Promise(function (resolve, reject) {
         getUploadDiamondFile( methodParam,  function (error, result) {
@@ -5000,7 +5095,61 @@ function getUploadDiamondFile(paramJson, callback){
         //console.log("statusCode"+response.statusCode );
             console.log(response );
         //console.log(response.message );
-        let info = body//JSON.parse(body);
+        let info = body;//JSON.parse(body);
+        console.log(info);
+        if (!error && response.statusCode == 200) {
+            outJson["result"] = info;
+            outJson["message"]="SUCCESS";
+            outJson["status"]="SUCCESS";
+            callback(null,outJson);        
+        }else{
+            outJson["result"] = info;
+            outJson["message"]="Issue in API";
+            outJson["status"]="FAIL";
+            callback(null,outJson);   
+        }
+    }); 
+}
+
+function execGetDiamondDeletePkt(methodParam) {
+    return new Promise(function (resolve, reject) {
+        getDiamondDeletePkt( methodParam,  function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getDiamondDeletePkt(paramJson, callback){
+    let apikey = paramJson.apikey || '';
+    let stockIdn = paramJson.stockIdn || '';
+    let outJson = {};
+    let list = [];
+    let formData = {};
+    formData["productId"] = stockIdn;
+    list.push(formData);
+
+    var headers = {
+        'API-KEY':apikey,
+        'Content-Type':'application/json'
+    }
+
+    var options = {
+        url: 'https://get-diamonds.com/api/diamonds',
+        method: 'DELETE',
+        headers: headers,
+        form: list 
+    };
+    
+    //console.log(options);
+    request(options,async function (error, response, body) {
+        console.log(error);
+        //console.log("statusCode"+response.statusCode );
+        console.log(response );
+        //console.log(response.message );
+        let info = body;//JSON.parse(body);
         console.log(info);
         if (!error && response.statusCode == 200) {
             outJson["result"] = info;
