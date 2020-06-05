@@ -3787,7 +3787,7 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
 
     let fmt = {};
     let params = [];
-    var sql = "select p.nme, unnest(p.co_allow) cos, o.refresh_min,o.file_idn,p.updates_min \n"+
+    var sql = "select p.nme, unnest(p.co_allow) cos, o.refresh_min,o.file_idn,p.updates_min,p.service_url \n"+
         "from portal_sync p, file_options o  where \n"+
         "  o.portal_idn = p.portal_idn and o.stt=1 \n";
         let cnt = 0;
@@ -3802,7 +3802,7 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
             params.push(portal);
         }
         if(process == 'refresh'){
-           sql +=  " and COALESCE(next_refresh_ts,CURRENT_TIMESTAMP) <= current_timestamp + interval '1 minute'  ";
+           sql +=  " and COALESCE(next_refresh_ts,CURRENT_TIMESTAMP) <= current_timestamp + interval '3 minute'  ";
         }
         sql +=" order by nme ";
         
@@ -3831,6 +3831,7 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
                     methodParam["poolName"] = poolName;
                     methodParam["days"] = days;
                     methodParam["minutes"] = minutes;
+                    methodParam["service_url"] = data.service_url;
                     let syncResult = execGetSyncDtl(methodParam);
                 }
                 outJson["status"] = "SUCCESS";
@@ -3867,7 +3868,8 @@ async function getSyncDtl(redirectParam,callback) {
     let poolName = redirectParam.poolName;
     let days = redirectParam.days || '';
     let updates_min = redirectParam.updates_min || '';
-    let minutes =  redirectParam.minutes || ''
+    let minutes =  redirectParam.minutes || '';
+    let service_url = redirectParam.service_url;
     var outJson={};
 
     var poolsList= require('qaq-core-db').poolsList;
@@ -3897,7 +3899,7 @@ async function getSyncDtl(redirectParam,callback) {
                     let filename = fileObj["filename"] || '';
                     let deletePacketList = fileObj["deletePacketList"] || [];
                     let statusMap = fileObj["statusMap"] || {};
-                    let packetDetails = fileObj["packetDetails"] || [];
+                    let packetDetails = fileObj["packetDetails"] || []; 
 
                     if(portal == 'marketd'){
                         methodParam = {};
@@ -3909,6 +3911,7 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["process"] = process;
                         methodParam["deletePacketList"] = deletePacketList;
                         methodParam["statusMap"] = statusMap;
+                        methodParam["service_url"] = service_url;
                         let syncResult = await execGetMarketSync(methodParam,tpoolconn);
                     } else if(portal == 'polygon'){
                         methodParam = {};
@@ -3918,6 +3921,7 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["filename"] = filename;
                         methodParam["coIdn"] = coIdn;
                         methodParam["process"] = process;
+                        methodParam["service_url"] = service_url;
                         let syncResult = await execGetPolygonSync(methodParam,tpoolconn);
                     } else if(portal == 'getd'){
                         methodParam = {};
@@ -3926,6 +3930,7 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["coIdn"] = coIdn;
                         methodParam["process"] = process;
                         methodParam["deletePacketList"] = deletePacketList;
+                        methodParam["service_url"] = service_url;
                         let syncResult = await execGetDimondSync(methodParam,tpoolconn);
                     } else if(portal == 'uni'){
                         methodParam = {};
@@ -3935,6 +3940,7 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["filename"] = filename;
                         methodParam["coIdn"] = coIdn;
                         methodParam["process"] = process;
+                        methodParam["service_url"] = service_url;
                         let syncResult = await execGetUniSync(methodParam,tpoolconn);
                     } 
 
@@ -3982,6 +3988,7 @@ async function getMarketSync(tpoolconn,redirectParam,callback) {
     let filename = redirectParam.filename;
     let deletePacketList = redirectParam.deletePacketList || [];
     let statusMap = redirectParam.statusMap || {};
+    let service_url = redirectParam.service_url;
     var methodParam={};  
     var outJson={};
 
@@ -3990,6 +3997,7 @@ async function getMarketSync(tpoolconn,redirectParam,callback) {
     methodParam = {};
     methodParam["username"] = username;
     methodParam["password"] = password;
+    methodParam["service_url"] = service_url;
     let authResult = await execGetAuthenticate(methodParam);
     if(authResult.status == 'SUCCESS'){
         let tokenResult = authResult["result"] || {};
@@ -4007,6 +4015,7 @@ async function getMarketSync(tpoolconn,redirectParam,callback) {
         methodParam["clientSecret"] = clientSecret;
         methodParam["filePath"] = filePath;
         methodParam["filename"] = filename;
+        methodParam["service_url"] = service_url;
         let uploadResult = await execGetUploadFile(methodParam);
         if(uploadResult.status == 'SUCCESS'){ 
             outJson["result"]=uploadResult["result"];
@@ -4032,6 +4041,7 @@ async function getMarketSync(tpoolconn,redirectParam,callback) {
                 methodParam["clientSecret"] = clientSecret;
                 methodParam["stoneListStr"] = stoneListStr;
                 methodParam["status"] = status;
+                methodParam["service_url"] = service_url;
                 let statusResult = await execGetMarketDUpdateStatus(methodParam);
             }
             outJson["status"]="SUCCESS";
@@ -4048,6 +4058,7 @@ async function getMarketSync(tpoolconn,redirectParam,callback) {
         methodParam["jwt"] =jwt;
         methodParam["clientSecret"] = clientSecret;
         methodParam["stoneListStr"] = stoneListStr;
+        methodParam["service_url"] = service_url;
         let deleteResult = await execGetMarketDeletePkt(methodParam);
         if(deleteResult.status == 'SUCCESS'){ 
             outJson["result"]=deleteResult["result"];
@@ -4079,6 +4090,7 @@ async function getPolygonSync(tpoolconn,redirectParam,callback) {
     let username = redirectParam.username;
     let password = redirectParam.password;
     let filename = redirectParam.filename;
+    let service_url = redirectParam.service_url;
     var methodParam={};  
     var outJson={};
 
@@ -4088,6 +4100,7 @@ async function getPolygonSync(tpoolconn,redirectParam,callback) {
         methodParam["username"] = username;
         methodParam["filePath"] = filePath;
         methodParam["filename"] = filename;
+        methodParam["service_url"] = service_url;
         getPolygonFtpFile(methodParam);
         
         outJson["status"]="SUCCESS";
@@ -4114,6 +4127,7 @@ async function getDiamondSync(tpoolconn,redirectParam,callback) {
     let process = redirectParam.process;
     let apikey = redirectParam.apikey;
     let deletePacketList = redirectParam.deletePacketList || [];
+    let service_url = redirectParam.service_url;
     var methodParam={};  
     var outJson={};
 
@@ -4121,6 +4135,7 @@ async function getDiamondSync(tpoolconn,redirectParam,callback) {
         methodParam = {};
         methodParam["packetDetails"] = packetDetails;
         methodParam["apikey"] = apikey;
+        methodParam["service_url"] = service_url;
         let syncResult = await execGetUploadDiamondFile(methodParam);
         
         outJson["status"]="SUCCESS";
@@ -4132,6 +4147,7 @@ async function getDiamondSync(tpoolconn,redirectParam,callback) {
             methodParam = {};
             methodParam["apikey"] =apikey;
             methodParam["stockIdn"] = stockIdn;
+            methodParam["service_url"] = service_url;
             let deleteResult = await execGetDiamondDeletePkt(methodParam);
         }
        
@@ -4160,6 +4176,7 @@ async function getUniSync(tpoolconn,redirectParam,callback) {
     let username = redirectParam.username;
     let password = redirectParam.password;
     let filename = redirectParam.filename;
+    let service_url = redirectParam.service_url;
     var methodParam={};  
     var outJson={};
 
@@ -4169,6 +4186,7 @@ async function getUniSync(tpoolconn,redirectParam,callback) {
         methodParam["username"] = username;
         methodParam["filePath"] = filePath;
         methodParam["filename"] = filename;
+        methodParam["service_url"] = service_url;
         getUniFtpFile(methodParam);
         
         outJson["status"]="SUCCESS";
@@ -4747,6 +4765,7 @@ function execGetAuthenticate(methodParam) {
 function getAuthenticate(paramJson, callback){
     let username = paramJson.username || '';
     let password = paramJson.password || '';
+    let service_url = paramJson.service_url;
     let outJson = {};
     let resultFinal = {};
     let authData = {};
@@ -4759,7 +4778,7 @@ function getAuthenticate(paramJson, callback){
     //console.log(authData)
 
     var options = {
-        url: 'https://qapi.market.diamonds/api/v1/auth/login',
+        url: service_url+'/auth/login',
         method: 'POST',
         headers: headers,
         form: authData
@@ -4804,6 +4823,7 @@ function getUploadFile(paramJson, callback){
     let clientSecret = paramJson.clientSecret || '';
     let jwt = paramJson.jwt || '';
     let filenme = paramJson.filename || '';
+    let service_url = paramJson.service_url;
     let outJson = {};
 
     let formData = {
@@ -4822,7 +4842,7 @@ function getUploadFile(paramJson, callback){
     }
 
     var options = {
-        url: 'https://qapi.market.diamonds/api/v1/diamond/'+clientSecret+'/upload-sheet',
+        url: service_url+'/diamond/'+clientSecret+'/upload-sheet',
         method: 'POST',
         headers: headers,
         formData: formData 
@@ -4866,6 +4886,7 @@ function getMarketDUpdateStatus(paramJson, callback){
     let clientSecret = paramJson.clientSecret || '';
     let jwt = paramJson.jwt || '';
     let status = paramJson.status || '';
+    let service_url = paramJson.service_url;
     let outJson = {};
     let formData = {};
     formData["vStnId"] = stoneListStr;
@@ -4877,7 +4898,7 @@ function getMarketDUpdateStatus(paramJson, callback){
     }
     //console.log("formData",formData);
     var options = {
-        url: 'https://qapi.market.diamonds/api/v1/diamond/'+clientSecret+'/update-status',
+        url: service_url+'/diamond/'+clientSecret+'/update-status',
         method: 'POST',
         headers: headers,
         form: formData 
@@ -4920,6 +4941,7 @@ function getMarketDeletePkt(paramJson, callback){
     let stoneListStr = paramJson.stoneListStr || '';
     let clientSecret = paramJson.clientSecret || '';
     let jwt = paramJson.jwt || '';
+    let service_url = paramJson.service_url;
     let outJson = {};
     let formData = {};
     formData["vStnId"] = stoneListStr;
@@ -4930,7 +4952,7 @@ function getMarketDeletePkt(paramJson, callback){
     }
 
     var options = {
-        url: 'https://qapi.market.diamonds/api/v1/diamond/'+clientSecret+'/delete',
+        url: service_url+'/diamond/'+clientSecret+'/delete',
         method: 'POST',
         headers: headers,
         form: formData 
@@ -5041,9 +5063,10 @@ function getPolygonFtpFile(paramJson){
     let filename = paramJson.filename || '';
     let username = paramJson.username || '';
     let password = paramJson.password || '';
+    let service_url = paramJson.service_url;
 
     const config = {
-        host: 'ftp.polygon.net',
+        host: service_url,
         port: 22,
         username: username,
         password: password
@@ -5070,9 +5093,10 @@ function getUniFtpFile(paramJson){
     let filename = paramJson.filename || '';
     let username = paramJson.username || '';
     let password = paramJson.password || '';
+    let service_url = paramJson.service_url;
 
     const config = {
-        host: 'datastaging.uni.diamonds',
+        host: service_url,
         port: 22,
         username: username,
         password: password
@@ -5108,6 +5132,7 @@ function execGetUploadDiamondFile(methodParam) {
 function getUploadDiamondFile(paramJson, callback){
     let packetDetails = paramJson.packetDetails || [];
     let apikey = paramJson.apikey || '';
+    let service_url = paramJson.service_url;
     let outJson = {};
 
 
@@ -5117,7 +5142,7 @@ function getUploadDiamondFile(paramJson, callback){
     }
 
     var options = {
-        url: 'https://get-diamonds.com/api/diamonds',
+        url: service_url,
         method: 'POST',
         headers: headers,
         form: packetDetails 
@@ -5159,6 +5184,7 @@ function execGetDiamondDeletePkt(methodParam) {
 function getDiamondDeletePkt(paramJson, callback){
     let apikey = paramJson.apikey || '';
     let stockIdn = paramJson.stockIdn || '';
+    let service_url = paramJson.service_url;
     let outJson = {};
     let list = [];
     let formData = {};
@@ -5171,7 +5197,7 @@ function getDiamondDeletePkt(paramJson, callback){
     }
 
     var options = {
-        url: 'https://get-diamonds.com/api/diamonds',
+        url: service_url,
         method: 'DELETE',
         headers: headers,
         form: list 
