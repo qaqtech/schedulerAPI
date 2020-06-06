@@ -2958,8 +2958,11 @@ function getImagePacketDetails(paramJson,callback) {
                                         let attrVal = resultRows[attr] || '';
                                         if(attrVal != '' && attrVal != 'N' && attrVal != null){
                                             let imageUrlVal = resultViewDtl[attr];
-                                            imageUrlVal = replaceall("vnm", vnm, imageUrlVal);
-                                            imageUrlVal = replaceall("cert_no", certno, imageUrlVal);
+                                            if(imageUrlVal.indexOf("vnm") > -1)
+                                                imageUrlVal = replaceall("vnm", vnm, imageUrlVal);
+                                            if(imageUrlVal.indexOf("cert_no") > -1)
+                                                imageUrlVal = replaceall("cert_no", certno, imageUrlVal);
+
                                             imageMap[attr] = imageUrlVal;
                                             let folderName = vnm+"/"
                                             let s3url = dbmsDtldata.s3url;
@@ -2977,7 +2980,8 @@ function getImagePacketDetails(paramJson,callback) {
                                                 fileResult = await execDeleteFolder(methodParam);
                                             } else {
                                                 //console.log("before",imageUrlVal);
-                                                imageUrlVal = replaceall(s3url+"/", "", imageUrlVal);
+                                                if(imageUrlVal.indexOf(s3url+"/") > -1)
+                                                    imageUrlVal = replaceall(s3url+"/", "", imageUrlVal);
                                                 //console.log("after",imageUrlVal);
                                                 let methodParam = {};
                                                 methodParam["imageUrl"] = imageUrlVal;
