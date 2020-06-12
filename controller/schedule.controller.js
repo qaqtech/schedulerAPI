@@ -3788,6 +3788,7 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
     let process = req.body.process || '';
     let days = req.body.days || '';
     let minutes = req.body.minutes || '';
+    let scheduleYN = req.body.scheduleYN || 'Y';
 
     let fmt = {};
     let params = [];
@@ -3805,7 +3806,7 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
             sql +=" and p.nme=$"+cnt+" \n";
             params.push(portal);
         }
-        if(process == 'refresh'){
+        if(process == 'refresh' && scheduleYN == 'Y'){
            sql +=  " and COALESCE(next_refresh_ts,CURRENT_TIMESTAMP) <= current_timestamp + interval '3 minute'  ";
         }
         sql +=" order by nme ";
@@ -3831,7 +3832,7 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
                     methodParam["updates_min"] = data.updates_min;
                     methodParam["portal"] = portal;
                     methodParam["process"] = process;
-                    methodParam["scheduleYN"] = "Y";
+                    methodParam["scheduleYN"] = scheduleYN;
                     methodParam["poolName"] = poolName;
                     methodParam["days"] = days;
                     methodParam["minutes"] = minutes;
