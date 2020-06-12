@@ -3946,7 +3946,17 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["process"] = process;
                         methodParam["service_url"] = service_url;
                         let syncResult = await execGetUniSync(methodParam,tpoolconn);
-                    } 
+                    } else if(portal == 'bn'){
+                        methodParam = {};
+                        methodParam["username"] =username;
+                        methodParam["password"] = password;
+                        methodParam["filePath"] = filePath;
+                        methodParam["filename"] = filename;
+                        methodParam["coIdn"] = coIdn;
+                        methodParam["process"] = process;
+                        methodParam["service_url"] = service_url;
+                        let syncResult = await execGetBncSync(methodParam,tpoolconn);
+                    }
 
                     methodParam = {};
                     methodParam["fileIdn"] =fileIdn;
@@ -4105,7 +4115,7 @@ async function getPolygonSync(tpoolconn,redirectParam,callback) {
         methodParam["filePath"] = filePath;
         methodParam["filename"] = filename;
         methodParam["service_url"] = service_url;
-        getPolygonFtpFile(methodParam);
+        getUploadFtpFile(methodParam);
         
         outJson["status"]="SUCCESS";
         outJson["message"]="File Uploaded Successfully!"; 
@@ -4191,7 +4201,45 @@ async function getUniSync(tpoolconn,redirectParam,callback) {
         methodParam["filePath"] = filePath;
         methodParam["filename"] = filename;
         methodParam["service_url"] = service_url;
-        getUniFtpFile(methodParam);
+        getUploadFtpFile(methodParam);
+        
+        outJson["status"]="SUCCESS";
+        outJson["message"]="File Uploaded Successfully!"; 
+        callback(null,outJson);     
+    } 
+}
+
+function execGetBncSync(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getBncSync(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+async function getBncSync(tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    var filePath = redirectParam.filePath;
+    let process = redirectParam.process;
+    let username = redirectParam.username;
+    let password = redirectParam.password;
+    let filename = redirectParam.filename;
+    let service_url = redirectParam.service_url;
+    var methodParam={};  
+    var outJson={};
+
+    if(process == 'refresh'){
+        methodParam = {};
+        methodParam["password"] = password;
+        methodParam["username"] = username;
+        methodParam["filePath"] = filePath;
+        methodParam["filename"] = filename;
+        methodParam["service_url"] = service_url;
+        getUploadFtpFile(methodParam);
         
         outJson["status"]="SUCCESS";
         outJson["message"]="File Uploaded Successfully!"; 
@@ -4248,7 +4296,7 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                     } else {
                         filename = replaceall("~datetime~",dte, filename);
                     }   
-                } else {
+                } else if(portal != 'bn') {
                     filename = filename+"_"+dte;
                 }
                    
@@ -5062,37 +5110,7 @@ function updateInterval(tpoolconn, paramJson, callback) {
     }
 }
 
-function getPolygonFtpFile(paramJson){
-    let filePath = paramJson.filePath || '';
-    let filename = paramJson.filename || '';
-    let username = paramJson.username || '';
-    let password = paramJson.password || '';
-    let service_url = paramJson.service_url;
-
-    const config = {
-        host: service_url,
-        port: 22,
-        username: username,
-        password: password
-    };
-      console.log(config)
-    let sftp = new Client;
-    
-    let data = fs.createReadStream(filePath);
-    let remote = '/'+filename;
-    sftp.connect(config)
-    .then(() => {
-        return sftp.put(data, remote);
-    })
-    .then(() => {
-        return sftp.end();
-    })
-    .catch(err => {
-        console.log(err.message);
-    });
-}
-
-function getUniFtpFile(paramJson){
+function getUploadFtpFile(paramJson){
     let filePath = paramJson.filePath || '';
     let filename = paramJson.filename || '';
     let username = paramJson.username || '';
