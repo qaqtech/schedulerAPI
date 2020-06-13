@@ -3784,7 +3784,7 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
     let poolName = redirectParam.poolName;
     var outJson={};
 
-    let portal = req.body.portal || '';
+    let portalList = req.body.portalList || [];
     let process = req.body.process || '';
     let days = req.body.days || '';
     let minutes = req.body.minutes || '';
@@ -3801,10 +3801,8 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
             sql +=" and $"+cnt+" = ANY(p.methods) \n";
             params.push(process);
         }
-        if(portal != ''){
-            cnt++;
-            sql +=" and p.nme=$"+cnt+" \n";
-            params.push(portal);
+        if(portalList.length > 0){
+            sql +=" and p.nme in ('"+portalList.join("','")+"') \n";
         }
         if(process == 'refresh' && scheduleYN == 'Y'){
            sql +=  " and COALESCE(next_refresh_ts,CURRENT_TIMESTAMP) <= current_timestamp + interval '3 minute'  ";
@@ -3822,23 +3820,14 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
         } else {
             var len = result.rows.length;
             if (len > 0) {
-                for(let i=0;i<len;i++){
-                    let data = result.rows[i] || {};
-                    let methodParam = {};
-                    portal = data.nme;
-                    methodParam["coIdn"] = data.cos;
-                    methodParam["fileIdn"] = data.file_idn;
-                    methodParam["refresh_min"] = data.refresh_min;
-                    methodParam["updates_min"] = data.updates_min;
-                    methodParam["portal"] = portal;
-                    methodParam["process"] = process;
-                    methodParam["scheduleYN"] = scheduleYN;
-                    methodParam["poolName"] = poolName;
-                    methodParam["days"] = days;
-                    methodParam["minutes"] = minutes;
-                    methodParam["service_url"] = data.service_url;
-                    let syncResult = execGetSyncDtl(methodParam);
-                }
+                let methodParam = {}; 
+                methodParam["syncData"] = result.rows;
+                methodParam["process"] = process;
+                methodParam["scheduleYN"] = scheduleYN;
+                methodParam["poolName"] = poolName;
+                methodParam["days"] = days;
+                methodParam["minutes"] = minutes;
+                let syncResult = execGetSyncStart(methodParam);
                 outJson["status"] = "SUCCESS";
                 outJson["message"] = "SUCCESS";
                 callback(null, outJson);
@@ -3850,6 +3839,51 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
         }
     });  
 }
+
+function execGetSyncStart(methodParam) {
+    return new Promise(function (resolve, reject) {
+        getSyncStart( methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+async function getSyncStart(redirectParam,callback) {
+    let syncData = redirectParam.syncData || [];
+    let process = redirectParam.process || '';
+    let scheduleYN = redirectParam.scheduleYN || "N";
+    let poolName = redirectParam.poolName;
+    let days = redirectParam.days || '';
+    let minutes =  redirectParam.minutes || '';
+    var outJson={};
+
+    for(let i=0;i<syncData.length;i++){
+        let data = syncData[i] || {};
+        let methodParam = {};
+        let portal = data.nme;
+        methodParam["coIdn"] = data.cos;
+        methodParam["fileIdn"] = data.file_idn;
+        methodParam["refresh_min"] = data.refresh_min;
+        methodParam["updates_min"] = data.updates_min;
+        methodParam["portal"] = portal;
+        methodParam["process"] = process;
+        methodParam["scheduleYN"] = scheduleYN;
+        methodParam["poolName"] = poolName;
+        methodParam["days"] = days;
+        methodParam["minutes"] = minutes;
+        methodParam["service_url"] = data.service_url;
+        //console.log("methodParam",methodParam);
+        let syncResult =await execGetSyncDtl(methodParam);
+    } 
+    outJson["status"] = "SUCCESS";
+    outJson["message"] = "SUCCESS";
+    callback(null, outJson);   
+}
+
 
 function execGetSyncDtl(methodParam) {
     return new Promise(function (resolve, reject) {
@@ -4907,15 +4941,15 @@ function getUploadFile(paramJson, callback){
         //console.log("statusCode"+response.statusCode );
         //console.log(response );
         //console.log(response.message );
-        let info = JSON.parse(body);
-        console.log(info);
+        //console.log(body);
         if (!error && response.statusCode == 200) {
+            let info = JSON.parse(body);
+            console.log(info);
             outJson["result"] = info;
             outJson["message"]="SUCCESS";
             outJson["status"]="SUCCESS";
             callback(null,outJson);        
         }else{
-            outJson["result"] = info;
             outJson["message"]="Issue in API";
             outJson["status"]="FAIL";
             callback(null,outJson);   
