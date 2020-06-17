@@ -3827,6 +3827,7 @@ exports.fullStockSync =function(req,res,tpoolconn,redirectParam,callback) {
                 methodParam["poolName"] = poolName;
                 methodParam["days"] = days;
                 methodParam["minutes"] = minutes;
+                methodParam["source"] = source;
                 let syncResult = execGetSyncStart(methodParam);
                 outJson["status"] = "SUCCESS";
                 outJson["message"] = "SUCCESS";
@@ -3859,6 +3860,7 @@ async function getSyncStart(redirectParam,callback) {
     let poolName = redirectParam.poolName;
     let days = redirectParam.days || '';
     let minutes =  redirectParam.minutes || '';
+    let source = redirectParam.source;
     var outJson={};
 
     for(let i=0;i<syncData.length;i++){
@@ -3876,6 +3878,7 @@ async function getSyncStart(redirectParam,callback) {
         methodParam["days"] = days;
         methodParam["minutes"] = minutes;
         methodParam["service_url"] = data.service_url;
+        methodParam["source"] = source;
         //console.log("methodParam",methodParam);
         let syncResult =await execGetSyncDtl(methodParam);
     } 
@@ -3909,6 +3912,7 @@ async function getSyncDtl(redirectParam,callback) {
     let updates_min = redirectParam.updates_min || '';
     let minutes =  redirectParam.minutes || '';
     let service_url = redirectParam.service_url;
+    let source = redirectParam.source;
     var outJson={};
 
     var poolsList= require('qaq-core-db').poolsList;
@@ -3939,6 +3943,11 @@ async function getSyncDtl(redirectParam,callback) {
                     let deletePacketList = fileObj["deletePacketList"] || [];
                     let statusMap = fileObj["statusMap"] || {};
                     let packetDetails = fileObj["packetDetails"] || []; 
+                    let formatNme = fileObj["formatNme"] || '';
+                    var cachedUrl = require('qaq-core-util').cachedUrl;
+                    let dbmsDtldata = await coreUtil.getCache("dbms_"+coIdn,cachedUrl); 
+                    dbmsDtldata = JSON.parse(dbmsDtldata); 
+                    let files_url = dbmsDtldata["files_url"] || '';
 
                     if(portal == 'marketd'){
                         methodParam = {};
@@ -3992,6 +4001,30 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["service_url"] = service_url;
                         let syncResult = await execGetBncSync(methodParam,tpoolconn);
                     }
+                    if(formatNme != ''){ 
+                        let now = new Date();
+                        now.setHours(now.getHours() + 5);
+                        now.setMinutes(now.getMinutes() + 30);
+                        let dte=dateFormat(now, "ddmmmyyyy hh:MM TT");
+    
+                        console.log("In Mail");
+                        let cc = [];
+                        let bcc = [];
+                        let emailIds = [];
+                        let methodParam = {};
+                        methodParam["formatNme"]=formatNme;
+                        methodParam["coIdn"]=coIdn;
+                        methodParam["filename"]=filename;
+                        methodParam["source"]=source;
+                        methodParam["subject"]="Blue Nile File "+dte; 
+                        methodParam["cc"]=cc; 
+                        methodParam["bcc"]=bcc; 
+                        methodParam["emailIds"]=emailIds; 
+                        methodParam["message"]="Thank You.";
+                        methodParam["files_url"] = files_url;
+                        //console.log("mailSend");
+                        let mailDetails = await execSendFTPMail(methodParam,tpoolconn);
+                    } 
 
                     methodParam = {};
                     methodParam["fileIdn"] =fileIdn;
@@ -4323,6 +4356,7 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
             let addl_attr = fileOptionDtl["searchattr"] || '';
             resultFinal["username"] = fileOptionDtl["username"];
             resultFinal["password"] = fileOptionDtl["password"];
+            resultFinal["formatNme"] = fileOptionDtl["mailformat"] || '';
 
             if(process == 'refresh'){
                 if(filename.indexOf("~datetime~") > -1){
@@ -5324,3 +5358,133 @@ exports.sendAutoReviseMail =function(req,res,tpoolconn,redirectParam,callback) {
     }
 }
 
+function execSendFTPMail(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        mailSendFTP(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+async function mailSendFTP(connection,paramJson,callback){
+    var formatNme = paramJson.formatNme || '';
+    var coIdn = paramJson.coIdn || '';
+    var filename = paramJson.filename || '';
+    var sal_source = paramJson.source || 'NA';
+    var subjects = paramJson.subject || '';
+    var ccId = paramJson.cc || [];
+    var bccId = paramJson.bcc || [];
+    var emailIds = paramJson.emailIds || [];
+    var message =  paramJson.message || '';
+    let files_url = paramJson.files_url || '';
+    var outJson = {};
+    let resultFinal = {};
+    console.log("In Mail");
+
+    var cachedUrl = require('qaq-core-util').cachedUrl;
+    if(formatNme != '' && coIdn !=''){
+        var params = {
+            "db":connection,
+            "format":formatNme,
+            "coIdn":coIdn
+        }
+        let data = await coreUtil.mailFormat(params);
+            data = data || {};
+            var isData=Object.keys(data) || [];
+            var isDatalen=isData.length;
+            if(isDatalen > 0){
+                if(data["status"] == 'SUCCESS'){
+                    //console.log(data);
+                    var subject = data["subject"];
+                    var body = data["body"];
+                    body = body.replace("~filename",filename);
+                    body = body.replace("~body",message);
+
+                    var from = '';
+                    if(sal_source != 'NA')
+                            from = 'From '+sal_source;
+
+                    subject = subject.replace("~SUBJ",subjects);
+
+                    var recipientlist = data["recipientlist"];
+                    var to = recipientlist["to"];
+                    var cc= recipientlist["cc"];
+                    var bcc = recipientlist["bcc"];
+
+                    var ccNew = ccId.concat(cc);
+                    var bccNew = bccId.concat(bcc);
+                    let toNew = emailIds.concat(to);
+                    coreUtil.getCache("dbms_"+coIdn,cachedUrl).then(dbmsDtldata =>{
+                        if(dbmsDtldata == null){
+                               outJson["status"]="FAIL";
+                               outJson["message"]="Fail to get DBMS Attribute";
+                               callback(null,outJson);
+                        }else{ 
+                            dbmsDtldata = JSON.parse(dbmsDtldata);
+                            var smtpuser = dbmsDtldata["smtpuser"];
+                            var smtppassword = dbmsDtldata["smtppassword"];
+                            var smtphost = dbmsDtldata["smtphost"];
+                            var smtpport = dbmsDtldata["smtpport"];
+                            var senderId = dbmsDtldata["senderid"];
+                            let attachment = {};
+                            attachment["path"] = "files/"+filename;
+                          
+                            var mailOptions = {
+                                smtphost:smtphost,
+                                smtpuser:smtpuser,
+                                smtppassword:smtppassword,
+                                smtpport:smtpport,
+                                secure:true,
+                                from: senderId, // sender address
+                                cc:ccNew,
+                                bcc:bccNew,
+                                to: toNew, // list of receivers
+                                subject: subject, // Subject line
+                                html: body, // html body
+                                attachments: attachment
+                                };
+                            //console.log(mailOptions);
+                            coreUtil.sendMail(mailOptions).then(mailResult =>{
+                                //console.log(mailResult);
+                                if(mailResult.status == 'SUCCESS'){
+                                    resultFinal["count"] = 1;
+                                    outJson["result"]=resultFinal;
+                                    outJson["status"]="SUCCESS";
+                                    outJson["message"]="Mail Sent Successfully!";
+                                    callback(null,outJson);
+                                } else {
+                                    outJson["result"]=resultFinal;
+                                    outJson["status"]="FAIL";
+                                    outJson["message"]="Mail Sent Failed!";
+                                    callback(null,outJson);
+                                } 
+                            }) 
+                        }
+                    })
+                }else{
+                    callback(null,data);
+                }
+                }else{
+                    outJson["result"]='';
+                    outJson["status"]="FAIL";
+                    outJson["message"]="Please Verify Format or Client Idn Parameter!";
+                    callback(null,outJson);
+                }
+            
+         //});   
+    }else if(formatNme == ''){
+         outJson["result"]='';
+         outJson["status"]="FAIL";
+         outJson["message"]="Please Verify Format Name Parameter";
+         callback(null,outJson);
+    }else if(coIdn == ''){
+        outJson["result"]='';
+        outJson["status"]="FAIL";
+        outJson["message"]="Please Verify Company Idn Parameter";
+        callback(null,outJson);
+   }
+}
