@@ -4365,9 +4365,9 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                     } else {
                         filename = replaceall("~datetime~",dte, filename);
                     }   
-                } else if(portal != 'bn') {
-                    filename = filename+"_"+dte;
-                }
+                } //else if(portal != 'bn') {
+                  //  filename = filename+"_"+dte;
+               // }
                    
                 paramJson={};    
                 paramJson["fileIdn"]=fileIdn;
