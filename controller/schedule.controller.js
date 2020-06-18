@@ -3979,6 +3979,10 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["process"] = process;
                         methodParam["deletePacketList"] = deletePacketList;
                         methodParam["service_url"] = service_url;
+                        methodParam["username"] =username;
+                        methodParam["password"] = password;
+                        methodParam["filePath"] = filePath;
+                        methodParam["filename"] = filename;
                         let syncResult = await execGetDimondSync(methodParam,tpoolconn);
                     } else if(portal == 'uni'){
                         methodParam = {};
@@ -4210,15 +4214,27 @@ async function getDiamondSync(tpoolconn,redirectParam,callback) {
     let apikey = redirectParam.apikey;
     let deletePacketList = redirectParam.deletePacketList || [];
     let service_url = redirectParam.service_url;
+    var filePath = redirectParam.filePath;
+    let username = redirectParam.username;
+    let password = redirectParam.password;
+    let filename = redirectParam.filename;
     var methodParam={};  
     var outJson={};
 
     if(process == 'refresh'){
+       // methodParam = {};
+       // methodParam["packetDetails"] = packetDetails;
+       // methodParam["apikey"] = apikey;
+       // methodParam["service_url"] = service_url;
+       // let syncResult = await execGetUploadDiamondFile(methodParam);
         methodParam = {};
-        methodParam["packetDetails"] = packetDetails;
-        methodParam["apikey"] = apikey;
+        methodParam["password"] = password;
+        methodParam["username"] = username;
+        methodParam["filePath"] = filePath;
+        methodParam["filename"] = filename;
         methodParam["service_url"] = service_url;
-        let syncResult = await execGetUploadDiamondFile(methodParam);
+        methodParam["remotePath"] = '/home/KapuGemsLtd231/'
+        getUploadFtpFile(methodParam);
         
         outJson["status"]="SUCCESS";
         outJson["message"]="File Uploaded Successfully!"; 
@@ -5185,6 +5201,7 @@ function getUploadFtpFile(paramJson){
     let username = paramJson.username || '';
     let password = paramJson.password || '';
     let service_url = paramJson.service_url;
+    let remotePath = paramJson.remotePath || '/';
 
     const config = {
         host: service_url,
@@ -5196,7 +5213,8 @@ function getUploadFtpFile(paramJson){
     let sftp = new Client;
     
     let data = fs.createReadStream(filePath);
-    let remote = '/'+filename;
+    let remote = remotePath+''+filename;
+    console.log("remotePath",remote);
     sftp.connect(config)
     .then(() => {
         return sftp.put(data, remote);
@@ -5487,4 +5505,69 @@ async function mailSendFTP(connection,paramJson,callback){
         outJson["message"]="Please Verify Company Idn Parameter";
         callback(null,outJson);
    }
+}
+
+exports.getCountryFile = async function(req,res,tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    var paramJson={};  
+    var outJson={};
+    let resultFinal = {};
+
+    let filename =  'state';
+    let fileExtension = 'csv';
+    
+
+    let list = [];
+    let params = [];
+    let fmt = {};
+    let query = "select name,country_idn from states order by state_idn";
+   
+    //console.log(query);
+    //console.log(params);
+    coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
+        if (error) {
+            console.log(error);
+            outJson["result"] = '';
+            outJson["status"] = "FAIL";
+            outJson["message"] = "gen_file_ary Fail To Execute Query!";
+            callback(null, outJson);
+        } else {
+            let rowCount = result.rows.length;
+            if (rowCount > 0) {
+                var len = result.rows.length;
+                //console.log("file Packet Len"+len);
+                let resultView = [];
+                resultView.push("name");
+                resultView.push("country_idn");
+                for (let i = 1; i < len; i++) {
+                    let rows = result.rows[i];
+                    let map ={};
+                    map["name"]  = rows["name"] || '';
+                    map["country_idn"]  = rows["country_idn"];
+                    list.push(map);
+                }
+
+                filename = filename+'.csv';   
+                let filePath = "files/"+filename;               
+                const json2csvParser = new Json2csvParser({ resultView });
+                const csv = json2csvParser.parse(list);
+                //console.log(csv)
+                fs.writeFile('files/'+filename, csv,async function(err) {
+                if (err) {
+                        console.log("error",err)
+                        outJson["result"]=resultFinal;
+                        outJson["status"]="FAIL";
+                        outJson["message"]="CSV Download Fail";
+                        callback(null,outJson);
+                    }
+                    resultFinal["filename"] = filename;
+                    resultFinal["filePath"] = filePath;
+                    outJson["result"]=resultFinal;
+                    outJson["status"]="SUCCESS";
+                    outJson["message"]="SUCCESS";
+                    callback(null,outJson);
+                });
+            }
+        }
+    })          
 }
