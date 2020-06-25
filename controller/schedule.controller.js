@@ -3072,7 +3072,7 @@ function deleteFile(redirectParam, callback){
     let s3 = new AWS.S3();
 
     var param = {
-        Bucket: "ecweb01",
+        Bucket: dbmsDtldata.s3bucket,
         Delete: { // required
             Objects: [ // required
               {
@@ -3125,7 +3125,7 @@ function deleteFolder(redirectParam, callback){
 
       //console.log("s3",s3);
     var params = {
-        Bucket: "ecweb01",
+        Bucket: dbmsDtldata.s3bucket,
         Prefix:folderName
     }
    
@@ -3144,7 +3144,7 @@ function deleteFolder(redirectParam, callback){
             callback(null, outJson);
         } else {
             params = {};
-            params = {Bucket:  "ecweb01"};
+            params = {Bucket:  dbmsDtldata.s3bucket};
             params.Delete = {Objects:[]};
         
             data.Contents.forEach(function(content) {
