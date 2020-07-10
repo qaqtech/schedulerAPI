@@ -5571,3 +5571,220 @@ exports.getCountryFile = async function(req,res,tpoolconn,redirectParam,callback
         }
     })          
 }
+
+exports.checkIncompleteTransaction =function(req,res,tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    let source = redirectParam.source || req.body.source;
+    let log_idn = redirectParam.log_idn;
+    let poolName = redirectParam.poolName;
+    let outJson = {};
+
+    let intervalTime = req.body.intervalTime || '15';
+    var poolsList = require('qaq-core-db').poolsList;
+    var pool = poolsList[poolName] || '';
+    if (pool != '') {
+        coreDB.getTransPoolConnect(pool, async function (error, tpoolconn) {
+            if (error) {
+                outJson["result"] = '';
+                outJson["status"] = "FAIL";
+                outJson["message"] = "Fail To Get Conection!";
+                callback(null, outJson);
+            } else {
+                let methodParamlocal = {};
+                methodParamlocal["coIdn"] = coIdn;
+                let formResult = await execGetFormDtl(methodParamlocal, tpoolconn);
+                if(formResult.status == 'SUCCESS'){
+                    let formList = formResult.result || [];
+
+                    methodParamlocal = {};
+                    methodParamlocal["coIdn"] = coIdn;
+                    methodParamlocal["formList"] = formList;
+                    methodParamlocal["intervalTime"] = intervalTime;
+                    let logResult = await execGetAccessLogDtl(methodParamlocal, tpoolconn);
+                    if(logResult.status == 'SUCCESS'){
+                        let logList = logResult.result || [];
+                        let resultView = logResult.resultView || [];
+                        let resultViewDtl = logResult.resultViewDtl || {};
+    
+                        methodParamlocal={};
+                        methodParamlocal["coIdn"]=coIdn;  
+                        methodParamlocal["logList"]=logList;
+                        methodParamlocal["formatNme"]="accesslogreq";
+                        methodParamlocal["resultView"]=resultView;
+                        methodParamlocal["resultViewDtl"]=resultViewDtl;
+                        let logMailResult = await coreUtil.sendAccessLogMail(methodParamlocal, tpoolconn);
+                        if(logMailResult.status == 'SUCCESS'){
+
+                            coreDB.doTransRelease(tpoolconn);
+                            outJson["status"] = "SUCCESS";
+                            outJson["message"] = "Log Mail send successfully";
+                            callback(null, outJson);
+                        } else {
+                            coreDB.doTransRelease(tpoolconn);
+                            callback(null, logMailResult);
+                        }
+                    } else {
+                        coreDB.doTransRelease(tpoolconn);
+                        callback(null, logResult);
+                    }
+                } else {
+                    coreDB.doTransRelease(tpoolconn);
+                    callback(null, formResult);
+                }  
+            }
+        })
+    } else {
+        outJson["result"] = '';
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Fail To Get Conection!";
+        callback(null, outJson);
+    }
+}
+
+function execGetFormDtl(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getFormDtl(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+function getFormDtl(tpoolconn, paramJson, callback) {
+    var coIdn = paramJson.coIdn;
+    let outJson = {};
+    let formList = [];
+
+    let params = [];
+    let fmt = {};
+    let query = "select form_nme from module_page where stt=1 and flg='T' ";
+
+    //console.log(query);
+    //console.log(params);
+    coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
+        if (error) {
+            console.log(error);
+            outJson["result"] = '';
+            outJson["status"] = "FAIL";
+            outJson["message"] = "getFormDtl Fail To Execute Query!";
+            callback(null, outJson);
+        } else {
+            var len = result.rows.length;
+            if (len > 0) {
+                for(let i=0;i<len;i++){
+                    let data = result.rows[i] || {};
+                    let form_nme = data.form_nme || '';
+                    formList.push(form_nme);
+                }
+
+                outJson["result"] = formList;
+                outJson["status"] = "SUCCESS";
+                outJson["message"] = "SUCCESS";
+                callback(null, outJson);
+            } else {
+                outJson["status"] = "FAIL";
+                outJson["message"] = "Form List data not found";
+                callback(null, outJson);
+            }
+        }
+    });
+}
+
+function execGetAccessLogDtl(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getAccessLogDtl(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+function getAccessLogDtl(tpoolconn, paramJson, callback) {
+    var coIdn = paramJson.coIdn;
+    let formList = paramJson.formList || [];
+    let intervalTime = parseInt(paramJson.intervalTime);
+    let outJson = {};
+    let logDtlList = [];
+
+    if(formList.length > 0){
+        let params = [];
+        let fmt = {};
+        let query = " select c.username,get_nme(c.nme_idn) buyer,a.access_log_idn,\n"+
+                "a.log_idn,a.form_nme,a.request_method, \n"+
+                "to_char(a.request_ts + interval'5.5 hours', 'dd-Mon HH24:mi:ss') dt \n"+ 
+                "from appl_access_log a,appl_login_log b,appl_user c where  \n"+
+                "a.log_idn = b.log_idn and b.user_idn=c.user_idn  \n"+
+                "and c.co_idn=$1 and form_nme in ('" + formList.join("','") + "') \n"+
+                //"and a.request_ts::date = current_date-10  \n"+
+                "and a.request_ts >= current_timestamp - ('"+intervalTime+" minutes')::interval \n"+
+                "and response_ts is null ";
+        params.push(coIdn);
+    
+        //console.log(query);
+        //console.log(params);
+        coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
+            if (error) {
+                console.log(error);
+                outJson["result"] = '';
+                outJson["status"] = "FAIL";
+                outJson["message"] = "getAccessLogDtl Fail To Execute Query!";
+                callback(null, outJson);
+            } else {
+                var len = result.rows.length;
+                if (len > 0) {
+                    for(let i=0;i<len;i++){
+                        let data = result.rows[i] || {};
+                        let map = {};
+                        map["username"] = data.username || '';
+                        map["buyer"] = data.buyer || '';
+                        map["access_log_idn"] = data.access_log_idn || '';
+                        map["log_idn"] = data.log_idn || '';
+                        map["form_nme"] = data.form_nme || '';
+                        map["request_method"] = data.request_method || '';
+                        map["request_date"] = data.dt || '';
+                        logDtlList.push(map);
+                    }
+                    let resultView = [];
+                    resultView.push("username");
+                    resultView.push("buyer");
+                    resultView.push("access_log_idn");
+                    resultView.push("log_idn");
+                    resultView.push("form_nme");
+                    resultView.push("request_method");
+                    resultView.push("request_date");
+
+                    let resultViewDtl = {};
+                    resultViewDtl["username"] = "UserName";
+                    resultViewDtl["buyer"] = "Buyer";
+                    resultViewDtl["access_log_idn"] = "Access Log Idn";
+                    resultViewDtl["log_idn"] = "Log Idn";
+                    resultViewDtl["form_nme"] = "Form Name";
+                    resultViewDtl["request_method"] = "Request Method";
+                    resultViewDtl["request_date"] = "Request Date";
+
+    
+                    outJson["result"] = logDtlList;
+                    outJson["resultView"] = resultView;
+                    outJson["resultViewDtl"] = resultViewDtl;
+                    outJson["status"] = "SUCCESS";
+                    outJson["message"] = "SUCCESS";
+                    callback(null, outJson);
+                } else {
+                    outJson["status"] = "FAIL";
+                    outJson["message"] = "Access Log data not found";
+                    callback(null, outJson);
+                }
+            }
+        });
+    } else if(formList.length == 0){
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Form list parameter can not be blank ";
+        callback(null, outJson);
+    }
+}
