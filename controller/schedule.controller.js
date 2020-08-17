@@ -3975,6 +3975,7 @@ async function getSyncDtl(redirectParam,callback) {
                 outJson["message"]="Fail To Get Conection!";
                 callback(null,outJson);
             }else{
+                console.log("new connection")
                 let methodParam = {};
                 methodParam["coIdn"] = coIdn;
                 methodParam["fileIdn"] = fileIdn;
@@ -4309,7 +4310,9 @@ async function getDiamondSync(tpoolconn,redirectParam,callback) {
         outJson["status"]="SUCCESS";
         outJson["message"]="Stones Deleted Successfully!";  
         callback(null,outJson);  
-    } 
+    } else {
+        callback(null,outJson);  
+    }
 }
 
 function execGetUniSync(methodParam, tpoolconn) {
