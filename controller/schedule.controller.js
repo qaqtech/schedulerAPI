@@ -3841,7 +3841,7 @@ function getSyncQueryStart(redirectParam,tpoolconn,callback) {
 
     let fmt = {};
     let params = [];
-    var sql = "select p.nme, unnest(p.co_allow) cos, o.refresh_min,o.file_idn,p.updates_min,p.service_url \n"+
+    var sql = "select p.nme, unnest(p.co_allow) cos, o.refresh_min,o.file_idn,o.updates_min,p.service_url \n"+
         "from portal_sync p, file_options o  where \n"+
         "  o.portal_idn = p.portal_idn and o.stt=1  and o.co_idn = any(p.co_allow) \n";
         let cnt = 0;
@@ -4054,7 +4054,17 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["process"] = process;
                         methodParam["service_url"] = service_url;
                         let syncResult = await execGetBncSync(methodParam,tpoolconn);
-                    }
+                    } else if(portal == 'r2net'){
+                        methodParam = {};
+                        methodParam["username"] =username;
+                        methodParam["password"] = password;
+                        methodParam["filePath"] = filePath;
+                        methodParam["filename"] = filename;
+                        methodParam["coIdn"] = coIdn;
+                        methodParam["process"] = process;
+                        methodParam["service_url"] = service_url;
+                        let syncResult = await execGetR2NetSync(methodParam,tpoolconn);
+                    } 
                     if(formatNme != ''){ 
                         let now = new Date();
                         now.setHours(now.getHours() + 5);
@@ -4228,6 +4238,43 @@ function execGetPolygonSync(methodParam, tpoolconn) {
 }
 
 async function getPolygonSync(tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    var filePath = redirectParam.filePath;
+    let process = redirectParam.process;
+    let username = redirectParam.username;
+    let password = redirectParam.password;
+    let filename = redirectParam.filename;
+    let service_url = redirectParam.service_url;
+    var methodParam={};  
+    var outJson={};
+
+    if(process == 'refresh'){
+        methodParam = {};
+        methodParam["password"] = password;
+        methodParam["username"] = username;
+        methodParam["filePath"] = filePath;
+        methodParam["filename"] = filename;
+        methodParam["service_url"] = service_url;
+        getUploadFtpFile(methodParam);
+        
+        outJson["status"]="SUCCESS";
+        outJson["message"]="File Uploaded Successfully!"; 
+        callback(null,outJson);     
+    } 
+}
+
+function execGetR2NetSync(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getR2NetSync(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+async function getR2NetSync(tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
     var filePath = redirectParam.filePath;
     let process = redirectParam.process;
