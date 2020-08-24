@@ -3999,6 +3999,13 @@ async function getSyncDtl(redirectParam,callback) {
                     dbmsDtldata = JSON.parse(dbmsDtldata); 
                     let files_url = dbmsDtldata["files_url"] || '';
 
+                    let now = new Date();
+                    now.setHours(now.getHours() + 5);
+                    now.setMinutes(now.getMinutes() + 30);
+                    let dte=dateFormat(now, "ddmmmyyyy hh:MM TT");
+                    let subject = "";
+
+
                     if(portal == 'marketd'){
                         methodParam = {};
                         methodParam["username"] =username;
@@ -4045,6 +4052,7 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["service_url"] = service_url;
                         let syncResult = await execGetUniSync(methodParam,tpoolconn);
                     } else if(portal == 'bn'){
+                        subject = "Blue Nile File "+dte; 
                         methodParam = {};
                         methodParam["username"] =username;
                         methodParam["password"] = password;
@@ -4055,6 +4063,7 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["service_url"] = service_url;
                         let syncResult = await execGetBncSync(methodParam,tpoolconn);
                     } else if(portal == 'r2net'){
+                        subject = "R2Net File "+dte; 
                         methodParam = {};
                         methodParam["username"] =username;
                         methodParam["password"] = password;
@@ -4065,12 +4074,7 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["service_url"] = service_url;
                         let syncResult = await execGetR2NetSync(methodParam,tpoolconn);
                     } 
-                    if(formatNme != ''){ 
-                        let now = new Date();
-                        now.setHours(now.getHours() + 5);
-                        now.setMinutes(now.getMinutes() + 30);
-                        let dte=dateFormat(now, "ddmmmyyyy hh:MM TT");
-    
+                    if(formatNme != ''){                       
                         console.log("In Mail");
                         let cc = [];
                         let bcc = [];
@@ -4080,7 +4084,7 @@ async function getSyncDtl(redirectParam,callback) {
                         methodParam["coIdn"]=coIdn;
                         methodParam["filename"]=filename;
                         methodParam["source"]=source;
-                        methodParam["subject"]="Blue Nile File "+dte; 
+                        methodParam["subject"]=subject;
                         methodParam["cc"]=cc; 
                         methodParam["bcc"]=bcc; 
                         methodParam["emailIds"]=emailIds; 
