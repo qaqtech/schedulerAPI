@@ -12,6 +12,7 @@ const Json2csvParser = require('json2csv').Parser;
 const fs = require('fs');
 var excel = require('excel4node');
 const Client = require('ssh2-sftp-client');
+const fetch = require('node-fetch');
 
 exports.pendingBidAllocMailApi = function(req,res,tpoolconn,redirectParam,callback) {
     var coIdn = redirectParam.coIdn;
@@ -2076,7 +2077,7 @@ exports.sendSaleDataMails = function(req,res,tpoolconn,redirectParam,callback) {
     if(days == 0){ 
         mailDate = todate;
     } 
-    if(days == 7){
+    if(days == 5){
         mailDate = fromDte+" To "+toDte;
         reportType = "Weekly";
     } 
@@ -5898,4 +5899,298 @@ function getAccessLogDtl(tpoolconn, paramJson, callback) {
         outJson["message"] = "Form list parameter can not be blank ";
         callback(null, outJson);
     }
+}
+
+exports.ezUnlock =async function(req,res,tpoolconn,redirectParam,callback) {
+    let parameter = req.body.parameter || '';
+    
+    let methodParam = {};
+    methodParam["password"] = parameter;
+    let decryptResult = await coreUtil.execUnlock(methodParam);
+    callback(null,decryptResult);
+}
+
+exports.getGIAStockDtl = async function(req,res,tpoolconn,redirectParam,callback) {
+    var coIdn = redirectParam.coIdn;
+    let source = redirectParam.source || req.body.source;
+    let log_idn = redirectParam.log_idn;
+    let poolName = redirectParam.poolName;
+    let prefix = redirectParam.prefix || '';
+    var outJson={};
+
+    let reportNoList = req.body.reportNoList || [];
+    let reportNoListLen = reportNoList.length;
+    if(reportNoListLen > 0){
+        let resultView = [];
+        resultView.push("shape_and_cutting_style");
+        resultView.push("carat_weight");
+        resultView.push("color_grade");
+        resultView.push("clarity_grade");
+        resultView.push("cut_grade");
+        resultView.push("fluorescence");
+        resultView.push("polish");
+        resultView.push("symmetry");
+        resultView.push("inscriptions");
+        resultView.push("report_comments");
+        resultView.push("clarity_characteristics");
+        resultView.push("diamond_type");
+        resultView.push("depth_pct");
+        resultView.push("table_pct");
+        resultView.push("crown_angle");
+        resultView.push("crown_height");
+        resultView.push("pavilion_angle");
+        resultView.push("pavilion_depth");
+        resultView.push("star_length");
+        resultView.push("lower_half");
+        resultView.push("girdle");
+        resultView.push("culet");
+
+        let attrDisplayDtl = {};
+        for(let j=0;j<resultView.length;j++){
+            let attr = resultView[j];
+            let methodParams = {};
+            methodParams["attr"] = attr;
+            methodParams["coIdn"] = coIdn;
+            let attrResult =await execGetAttrDetails(methodParams,tpoolconn);
+            if(attrResult.status == 'SUCCESS'){
+                let map = attrResult["result"] || {};
+                attrDisplayDtl[attr+"_V"] = map["attr"] || '';
+                attrDisplayDtl[attr+"_T"] = map["dta_typ"] || '';
+            }
+        }
+
+        var cachedUrl = require('qaq-core-util').cachedUrl;
+       
+        let productAttributeDtl = await coreUtil.getCache(prefix+"productAttributeDtl_"+coIdn,cachedUrl);
+        if(productAttributeDtl == null){
+            outJson["status"]="FAIL";
+            outJson["message"]="Fail to get Product Sub Attribute";
+            callback(null,outJson);
+        }else{
+            productAttributeDtl = JSON.parse(productAttributeDtl);
+
+            for(let i=0;i<reportNoListLen;i++){
+                let reportNo = reportNoList[i];
+
+                let methodParam = {};
+                methodParam["coIdn"] = coIdn;
+                methodParam["reportNo"] = reportNo;
+                methodParam["productAttributeDtl"] = productAttributeDtl;
+                methodParam["resultView"] = resultView;
+                methodParam["attrDisplayDtl"] = attrDisplayDtl;
+                let giaResult =await execGetGIAData(methodParam);
+            }
+            outJson["status"] = "SUCCESS";
+            outJson["message"] = "SUCCESS";
+            callback(null, outJson); 
+        }
+    } else {
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify reportNoList Can not be blank!";
+        callback(null, outJson);
+    }
+}
+
+
+function execGetGIAData(methodParam) {
+    return new Promise(function (resolve, reject) {
+        getGIAData( methodParam,  function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+async function getGIAData(paramJson, callback){
+    let reportNos = paramJson.reportNo || '';
+    let coIdn = paramJson.coIdn;
+    let productAttributeDtl = paramJson.productAttributeDtl;
+    let resultView = paramJson.resultView || [];
+    let attrDisplayDtl = paramJson.attrDisplayDtl || {};
+    let outJson = {};
+    let resultFinal = {};
+    console.log(reportNos);
+
+    let obj = {
+        query: `
+          {
+          getReport(report_number: "`+reportNos+`") {
+            report_date
+            report_number
+            report_type
+            results {
+              ... on DiamondGradingReportResults {
+                shape_and_cutting_style
+                carat_weight
+                color_grade
+                clarity_grade
+                cut_grade
+                fluorescence
+                polish
+                symmetry
+                inscriptions
+                report_comments
+                clarity_characteristics
+                diamond_type
+                proportions {
+                  depth_pct
+                  table_pct
+                  crown_angle
+                  crown_height
+                  pavilion_angle
+                  pavilion_depth
+                  star_length
+                  lower_half
+                  girdle
+                  culet
+                }
+              }
+            }
+          }
+        } 
+        ` 
+      };
+
+    var options = {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Authorization': '9dbd8aa4-0838-4e05-9538-24f07ede7632'
+        },
+        body: JSON.stringify(obj)
+      };
+      //console.log(options);
+    const GRAPHQL_URL = 'https://api.reportresults.gia.edu/'
+ 
+    const response = await fetch(GRAPHQL_URL, options)
+
+    const responseBody = await response.json();
+    //console.log(responseBody);
+    let data = responseBody.data || {};
+    let getReport = data.getReport || {};
+    let reportData = getReport.results || {};
+    console.log(reportData);
+   
+    let stockMap = {};
+    for(let i=0;i<resultView.length;i++){
+        let giaAttr = resultView[i];
+        let attr = attrDisplayDtl[giaAttr+"_V"] || '';
+        let data_typ = attrDisplayDtl[giaAttr+"_T"] || '';
+        let attrVal = reportData[giaAttr] || '';
+
+        if (data_typ == 'c' && attrVal != '' && attrVal != 0) {
+            let optVals = productAttributeDtl[attr+"#O"] || []; 
+            let prpSort = productAttributeDtl[attr + "#S"] || [];
+            let prpVal = productAttributeDtl[attr + "#V"] || [];
+            for(let m=0;m<optVals.length;m++){
+                let element = optVals[m] || [];
+                if(element.indexOf(attrVal) > -1){
+                    attrVal = prpSort[m] || '';  
+                } 
+            }
+        }
+        stockMap[attr] = attrVal;       
+    }
+
+    console.log("stockMap",stockMap);
+    outJson["status"] = "SUCCESS";
+    outJson["message"] = "SUCCESS";
+    callback(null, outJson); 
+}
+
+function execGetAttrDetails(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getAttrDetails(methodParam, tpoolconn, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getAttrDetails(methodParam, tpoolconn, callback) {
+    let attr = methodParam.attr;
+    let coIdn = methodParam.coIdn;
+    let fmt = {};
+    let params = [];
+    let outJson = {};
+
+    var sql = "select * from get_attr_nme_by_optval($1)";
+    params.push(attr);
+
+    //console.log(sql);
+    //console.log(params);
+    coreDB.executeTransSql(tpoolconn, sql, params, fmt, function (error, result) {
+        if (error) {
+            outJson["status"] = "FAIL";
+            outJson["message"] = "Error In getAttrDetails Method!";
+            callback(null, outJson);
+        } else {
+            var len = result.rows.length;
+            if (len > 0) {
+                let rows = result.rows[0];
+                let map = {};
+                map["attr"] = rows.pattr;
+                map["dta_typ"] = rows.pdtatyp;
+
+                outJson["status"] = "SUCCESS";
+                outJson["message"] = "SUCCESS";
+                outJson["result"] = map;
+                callback(null, outJson);
+            } else {
+                outJson["status"] = "FAIL";
+                outJson["message"] = "Sorry No Result Found";
+                callback(null, outJson);
+            }
+        }
+    });
+}
+
+function execUpdateStockM(methodParam, connection) {
+    return new Promise(function (resolve, reject) {
+        updateStockM(methodParam, connection, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function updateStockM(methodParam, connection, callback) {
+    var logUsr = methodParam.logUsr || '';
+    var reportNo = methodParam.reportNo || '';
+    let coIdn = methodParam.coIdn;
+    let attrMap = methodParam.attrMap || {};
+    let outJson = {};
+    let updateQ = "";
+    let params = [];
+
+    updateQ = "update stock_m set  attr = attr || concat('"+JSON.stringify(attrMap)+"')::jsonb  " +
+        ", modified_ts = current_timestamp, modified_by = $1 " +
+        "where stock_idn in ("+stock_idn.join(",")+") and stt = 1 and co_idn = $2 ";
+
+
+    params.push(logUsr);
+    params.push(coIdn);
+
+    //console.log(updateQ);
+    //console.log(params);
+    coreDB.executeTransSql(connection, updateQ, params, {}, function (error, result) {
+        if (error) {
+            coreDB.doTransRollBack(connection);
+            outJson["status"] = "FAIL";
+            outJson["message"] = "Error In update stock_m Method!" + error.message;
+            console.log(outJson);
+            callback(null, outJson);
+        } else {
+            //coreDB.doTransCommit(connection);
+            outJson["status"] = "SUCCESS";
+            outJson["message"] = "SUCCESS";
+            callback(null, outJson);
+        }
+    })
 }

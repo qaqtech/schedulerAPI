@@ -35,7 +35,13 @@ app.listen(port, hostname, () => {
 		 var moduleDtl = result['SbPYRdIImGIhlRR6sQjJWN8AYfOUDOTp']||'';
 		 var poolNme = moduleDtl.pool||'TPOOL';
 		 let poolList=[];
-		 poolList.push(poolNme);
+		 var databaseList = ["","GR_"];
+
+		 for(var i=0 ; i < databaseList.length; i++){
+			var db = databaseList[i]; 
+			var pool=db+poolNme;
+			poolList.push(pool);
+		}
 		 poolList.push("MFGPOOL");
 		 poolList.push("KGFAPOOL");
 		 coreDB.initializePoolsList(poolList).then(poolsList => {
