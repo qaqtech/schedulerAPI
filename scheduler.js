@@ -44,6 +44,7 @@ app.listen(port, hostname, () => {
 		}
 		 poolList.push("MFGPOOL");
 		 poolList.push("KGFAPOOL");
+		 poolList.push("CDORCL");
 		 coreDB.initializePoolsList(poolList).then(poolsList => {
              coreDB.poolsList=poolsList;
                console.log(`transactionPools Created `);

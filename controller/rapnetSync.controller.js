@@ -94,11 +94,11 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                     methodParam = {};
                     methodParam["resultView"]=resultView;
                     methodParam["coIdn"] = coIdn;
-                    methodParam["empidn"]="1";
+                    methodParam["empidn"]=coIdn;
                     methodParam["formatNme"] = 'rapnet_delete';
                     methodParam["pktDetails"]=packetDtlList;
                     methodParam["buyerYN"]="No";
-                    methodParam["byridn"]="1";
+                    methodParam["byridn"]=coIdn;
                     methodParam["packetDisplayCnt"]=10;
                     methodParam["usernamelist"] = usernamelist;
                     let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
@@ -330,7 +330,7 @@ function getFileOptionsDtl(tpoolconn, paramJson, callback) {
         "addl_attr->> 'fileExtension' fileExtension, "+
         "addl_attr->> 'username' username, "+	
         "addl_attr->> 'password' passwords, "+
-        "file_idn , key_mapping "+			  
+        "file_idn , key_mapping,nme "+			  
         "from file_options  where co_idn=$1 and stt=1 and nme = 'rapnet_ind' ";
 
     params.push(coIdn);
@@ -351,6 +351,7 @@ function getFileOptionsDtl(tpoolconn, paramJson, callback) {
                 map["password"] = result.rows[0].passwords;
                 map["key_mapping"] = result.rows[0].key_mapping;
                 map["file_idn"] = result.rows[0].file_idn;
+                map["nme"] = result.rows[0].nme;
 
                 outJson["result"] = map;
                 outJson["status"] = "SUCCESS";
@@ -390,12 +391,12 @@ exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, c
             usernamelist = JSON.parse(usernamelist);
             let passwordlist = fileOptionDtl["password"] || [];
             passwordlist = JSON.parse(passwordlist);
+            let nme = fileOptionDtl["nme"] || '';
             let filePath  = 'files/'+filename+'.csv';
 
             methodParam = {};
             methodParam["coIdn"] = coIdn;
-            methodParam["fileIdn"] = file_idn;
-            methodParam["filemap"] = fileMap;
+            methodParam["nme"] = nme;
             let fileArrayResult = await execGenFileProcedure(methodParam,connection);
             if(fileArrayResult.status == 'SUCCESS'){
                 let resultView = fileArrayResult["resultView"] || [];
@@ -428,26 +429,50 @@ exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, c
                             outJson["message"]="CSV Download Fail";
                             callback(null,outJson);
                             } else {
-                                //console.log("usernamelist",usernamelist.length);
-                                let uploadPath = "http://technet.rapaport.com/HTTP/Upload/Upload.aspx?Method=file&ReplaceAll=true&ticket=";
-                                for (let i = 0; i < usernamelist.length; i++) {
-                                    let username = usernamelist[i];
-                                    let password = passwordlist[i];
-                                    let methodParamLocal = {};
-                                    methodParamLocal["username"] = username;
-                                    methodParamLocal["password"] = password;
-                                    methodParamLocal["filePath"] = filePath;
-                                    methodParamLocal["filename"] = filename;
-                                    methodParamLocal["fileExtension"] = fileExtension;
-                                    methodParamLocal["uploadPath"] = uploadPath;
-                                    //console.log(methodParamLocal);
-                                    httpFileUpload(methodParamLocal);
-                                }
+                                    //console.log("usernamelist",usernamelist.length);
+                                    let tokenList = [];
+                                    for (let i = 0; i < usernamelist.length; i++) {
+                                        let username = usernamelist[i];
+                                        let password = passwordlist[i];
+                                        let methodParamLocal = {};
+                                        methodParamLocal["username"] = username;
+                                        methodParamLocal["password"] = password;
+                                        methodParamLocal["service_url"] = "https://technet.rapaport.com/HTTP/Authenticate.aspx";
+                                        let tokenResult = await execGetAuthenticate(methodParamLocal);
+                                        if(tokenResult.status == 'SUCCESS'){
+                                            let token = tokenResult.result || '';
+                                            if(token != '')
+                                                tokenList.push(token);
+                                        }
+                                    }
+                
 
-                                outJson["result"] = resultFinal;
-                                outJson["status"] = "SUCCESS";
-                                outJson["message"] = "SUCCESS";
-                                callback(null, outJson);
+                                    for (let j = 0; j < tokenList.length; j++) {
+                                        let ticket = tokenList[j];
+                                        let methodParamLocal = {};
+                                        methodParamLocal["filePath"] = filePath;
+                                        methodParamLocal["filename"] = filename+".csv";
+                                        methodParamLocal["service_url"] = "http://technet.rapaport.com/HTTP/Upload/Upload.aspx?Method=file&ReplaceAll=false&ticket="+ticket;
+                                        let pktResult =await execGetUploadFile(methodParamLocal);
+            
+                                    }
+
+                                    methodParam = {};
+                                    methodParam["resultView"]=resultView;
+                                    methodParam["coIdn"] = coIdn;
+                                    methodParam["empidn"]=coIdn;
+                                    methodParam["formatNme"] = 'rapnet_delete';
+                                    methodParam["pktDetails"]=packetDtlList;
+                                    methodParam["buyerYN"]="No";
+                                    methodParam["byridn"]=coIdn;
+                                    methodParam["packetDisplayCnt"]=10;
+                                    methodParam["usernamelist"] = usernamelist;
+                                    //let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
+                                    //console.log("mailResult",mailResult);
+                                    outJson["result"] = resultFinal;
+                                    outJson["status"] = "SUCCESS";
+                                    outJson["message"] = "SUCCESS";
+                                    callback(null, outJson);
                             }
                         });
                     }
@@ -484,17 +509,17 @@ function execGenFileProcedure(methodParam, tpoolconn) {
 }
 
 function genFileProcedure(tpoolconn, paramJson, callback) {
-    var fileIdn = paramJson.fileIdn || '';
-    var filemap = paramJson.filemap || '';
+    var nme = paramJson.nme || '';
+    var coIdn = paramJson.coIdn || '';
     let outJson = {};
     let list = [];
 
-    if (fileIdn != '') {
+    if (nme != '') {
         let params = [];
         let fmt = {};
-        let query = "select gen_file_ary($1,$2) filearry;";
-        params.push(fileIdn);
-        params.push(filemap);
+        let query = "select gen_file_ary_update($1,$2) filearry";
+        params.push(coIdn);
+        params.push(nme);
         //console.log(query);
         //console.log(params);
         coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
@@ -526,10 +551,123 @@ function genFileProcedure(tpoolconn, paramJson, callback) {
                 }
             }
         });
-    } else if (fileIdn == '') {
+    } else if (nme == '') {
         outJson["result"] = '';
         outJson["status"] = "FAIL";
-        outJson["message"] = "Please Verify File Idn Parameter";
+        outJson["message"] = "Please Verify File Name Parameter";
         callback(null, outJson);
     }
+}
+
+function execGetAuthenticate(methodParam) {
+    return new Promise(function (resolve, reject) {
+        getAuthenticate( methodParam,  function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getAuthenticate(paramJson, callback){
+    let username = paramJson.username || '';
+    let password = paramJson.password || '';
+    let service_url = paramJson.service_url;
+    let outJson = {};
+    let resultFinal = {};
+    let authData = {};
+    authData["username"] = username;
+    authData["password"] = password;
+
+    var headers = {
+        'Content-Type':'application/json'
+    }
+    //console.log(authData)
+
+    var options = {
+        url: service_url,
+        method: 'POST',
+        headers: headers,
+        form: authData
+    };
+    //console.log(options);
+    request(options,async function (error, response, body) {
+        //console.log(error);
+        //console.log("statusCode"+response.statusCode );
+        //console.log(response );
+        //console.log(response.message );
+        if (!error && response.statusCode == 200) {
+            //console.log("body"+body); // Print the shortened url.
+            outJson["result"] = body;
+            outJson["message"]="SUCCESS";
+            outJson["status"]="SUCCESS";
+            callback(null,outJson);        
+        }else{
+
+            outJson["message"]=error;
+            outJson["status"]="FAIL";
+            //console.log("IN",error);
+            callback(null,outJson);   
+        }
+    });   
+}
+
+function execGetUploadFile(methodParam) {
+    return new Promise(function (resolve, reject) {
+        getUploadFile( methodParam,  function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getUploadFile(paramJson, callback){
+    let filePath = paramJson.filePath || '';
+    let filenme = paramJson.filename || '';
+    let service_url = paramJson.service_url;
+    let outJson = {};
+
+    let formData = {
+        file: {
+            value: fs.createReadStream(filePath),
+            options: {
+                filename: filenme
+            }
+        }
+    }
+
+    var headers = {
+        'ContentType':'multipart/form-data'
+    }
+
+    var options = {
+        url: service_url,
+        method: 'POST',
+        headers: headers,
+        formData: formData 
+    };
+    
+    //console.log(options);
+    request(options,async function (error, response, body) {
+        //console.log(error);
+        //console.log("statusCode"+response.statusCode );
+        //console.log(response );
+        //console.log(response.message );
+        console.log(body);
+        if (!error && response.statusCode == 200) {
+            let info = JSON.parse(body);
+            console.log(info);
+            outJson["result"] = info;
+            outJson["message"]="SUCCESS";
+            outJson["status"]="SUCCESS";
+            callback(null,outJson);        
+        }else{
+            outJson["message"]="Issue in API";
+            outJson["status"]="FAIL";
+            callback(null,outJson);   
+        }
+    }); 
 }

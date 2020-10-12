@@ -176,3 +176,49 @@ exports.scheduleLoad = function(req, res) {
     res.send(outJson);
    }
 }
+
+exports.load = function(req, res,callback) {
+    var outJson = {};
+    var method = req.headers['method'] || 'approvePackets';
+    var ds = req.headers['ds'] || '';
+    var params = {};
+    let accessParams={};
+    if(method !='' && ds !=''){
+        let poolName = ds;//+"POOL";
+        poolName = poolName.trim();   
+        console.log(poolName);            
+        coreDB.getPoolConnect(poolName,async function(error,oracleconnection){
+            if(error){                                   
+                outJson["status"]="FAIL";
+                outJson["message"]="Fail To Get Oracle Conection!";
+                callback(null,outJson);   
+            }else{
+                if(typeof scheduleController[''+method] === 'function'){ 
+                    let methodParam = {};                                                             
+                    scheduleController[''+method](req, res ,oracleconnection,methodParam,function(error,result){
+                        coreDB.doCommit(oracleconnection);
+                        coreDB.doRelease(oracleconnection);
+                        res.send(result);
+                    });
+                }else{
+                    outJson["result"]='';
+                    outJson["status"]="FAIL";
+                    outJson["message"]="Please Verify Method Name Parameter!";
+                    coreDB.doCommit(oracleconnection);
+                    coreDB.doRelease(oracleconnection);
+                    res.send(outJson);
+                } 
+            }   
+        })                
+    }else if(method ==''){
+        outJson["result"]='';
+        outJson["status"]="FAIL";
+        outJson["message"]="Please Verify Method Name Can not be blank!!";
+        res.send(outJson);
+    }else if(ds ==''){
+        outJson["result"]='';
+        outJson["status"]="FAIL";
+        outJson["message"]="Please Verify Ds Can not be blank!!";
+        res.send(outJson);
+    }
+}

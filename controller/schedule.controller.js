@@ -6209,3 +6209,427 @@ function updateStockM(methodParam, connection, callback) {
         }
     })
 }
+
+exports.approvePackets = async function (req, res, oracleconnection, redirectParam, callback) {
+    let pktIdnList = req.body.pktIdnList || [];
+    let typ = req.body.typ || 'WH';
+    let status = req.body.status || 'IS';
+    let nme_idn = req.body.nme_idn || '';
+    let resultFinal = {};
+    let outJson = {}; 
+    let methodParam = {};   
+
+    if(pktIdnList.length > 0 && nme_idn != ''){
+        if(status == 'CF' || status == 'IS'){
+            methodParam = {};
+            methodParam["nme_idn"] = nme_idn;
+            let nmeDtlResult = await execGetNmeDtl(methodParam,oracleconnection);
+            if(nmeDtlResult.status == "SUCCESS"){
+                let rel_idn = nmeDtlResult.result || '';
+    
+                methodParam = {};
+                methodParam["rel_idn"] = rel_idn;
+                methodParam["pktIdnList"] = pktIdnList;
+                let pktDtlResult = await execInsertPktDataToGt(methodParam,oracleconnection);
+                if(pktDtlResult.status == "SUCCESS"){
+                   
+                    methodParam = {};
+                    methodParam["rel_idn"] = rel_idn;
+                    methodParam["nme_idn"] = nme_idn;
+                    methodParam["status"] = status;
+                    methodParam["inv_typ"] = typ;
+                    let invResult = await execInsertWebInvMasData(methodParam,oracleconnection);
+                    callback(null,invResult);
+                } else {
+                    callback(null,pktDtlResult);
+                }
+            } else {
+                callback(null, nmeDtlResult);
+            }
+        } else if(status == 'RT' ){
+            methodParam = {};
+            methodParam["nme_idn"] = nme_idn;
+            methodParam["pktIdnList"] = pktIdnList;
+            let invoiceDtlResult = await execGetInvoiceDtl(methodParam,oracleconnection);
+            if(invoiceDtlResult.status == "SUCCESS"){
+                let invoiceList = invoiceDtlResult.result || [];
+
+                methodParam = {};
+                methodParam["invoiceList"] = invoiceList;
+                methodParam["pktIdnList"] = pktIdnList;
+                methodParam["status"] = status;
+                invoiceDtlResult = await execReturnInvoiceDtl(methodParam,oracleconnection);
+                callback(null,invoiceDtlResult);
+            } else {
+                callback(null, invoiceDtlResult);
+            }
+        }  
+    } else if(pktIdnList.length == 0){
+        outJson["result"] = resultFinal;
+        outJson["status"] = "FAIL";
+        outJson["message"] = "pktIdnList can not be blank";
+        callback(null, outJson);
+    }  else if(nme_idn == ''){
+        outJson["result"] = resultFinal;
+        outJson["status"] = "FAIL";
+        outJson["message"] = "nme_idn can not be blank";
+        callback(null, outJson);
+    }
+}
+
+function execGetNmeDtl(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getNmeDtl(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getNmeDtl(connection,paramJson,callback) {
+    let nme_idn = paramJson.nme_idn || '';
+    let outJson = {};
+    
+    let oraclefmt = {outFormat: oracledb.OBJECT};
+    let oracleparams = {};
+    var query=" select nmerel_idn from nme_rel_v where nme_idn = :nme_idn and dflt_yn='Y' ";
+    
+    oracleparams= {nme_idn};
+
+    //console.log(query);
+    //console.log(oracleparams);
+    coreDB.executeSql(connection,query,oracleparams,oraclefmt,function(error,result){
+        if(error){
+            console.log(error);
+            outJson["status"]="FAIL";
+            outJson["message"]="Fail To Execute Query!";
+            callback(null,outJson);   
+        }else{
+            var len = result.rows.length;
+            if (len > 0) {
+                let rel_idn = result.rows[0].NMEREL_IDN;
+                //console.log(rel_idn);
+                outJson["status"]="SUCCESS";
+                outJson["message"]="SUCCESS";
+                outJson["result"]=rel_idn;
+                callback(null,outJson);
+            }else{
+                outJson["status"]="FAIL";
+                outJson["message"]="Customer Idn is incorrect or there is no defult term exit. plz try again.";
+                callback(null,outJson);
+            }
+        }
+    }) 
+}
+
+function execInsertPktDataToGt(methodParam,oracleconnection){
+    return new Promise(function(resolve,reject) {
+        insertPktDataToGt(methodParam,oracleconnection,function (error, result) {
+            if(error){  
+                reject(error);
+            }
+            resolve(result);
+     });
+    });
+}
+
+function insertPktDataToGt(redirectParam,oracleconnection,callback){
+    let pktIdnList = redirectParam.pktIdnList || [];
+    let rel_idn = redirectParam.rel_idn || '';
+    let outJson = {};
+
+    if(rel_idn != ''){
+        var oracleparams = {};
+        var oraclefmt = {autoCommit:true};
+        var query = "Delete from gt_srch_rslt";
+        //console.log(query);
+        coreDB.executeSql(oracleconnection,query,oracleparams,oraclefmt,function(error,result){
+            if(error){
+                outJson["status"]="FAIL";
+                outJson["message"]="Fail To Execute Query of delete gt_srch_rslt!";
+                callback(null,outJson);   
+            }else{
+                var rowNum = result.rowsAffected;
+                console.log("delete",rowNum)
+                query = "Insert into gt_srch_rslt ( rln_idn, srch_id, pkt_ty, stk_idn, vnm,rmk, qty, cts, pkt_dte, stt,prte, cmp, rap_rte, cert_lab, cert_no, flg, sk1, quot, rap_dis ) \n"+
+                    "select  :rel_idn,1 srch_id, b.pkt_ty, b.idn, b.vnm, b.tfl3, decode(b.pkt_ty, 'NR', b.qty, b.qty - nvl(qty_iss,0)) qty,decode(b.pkt_ty, 'NR', b.cts, b.cts - nvl(cts_iss, 0)) cts,\n"+
+                    " b.dte, b.stt,b.fcpr, nvl(upr, cmp) rte, b.rap_rte, b.cert_lab, b.cert_no,"+
+                    " 'I' flg, sk1, nvl(upr,cmp) , decode(b.rap_rte, 1, null, trunc((nvl(upr,cmp)/rap_rte*100)-100, 2)) rap_dis "+ 
+                    "from mstk b where b.stt in ('MKAV','BRAV','LB_PRI','MKIS','MKWH','MKEI') and ( vnm in ('" + pktIdnList.join("','") + "') or tfl3 in ('" + pktIdnList.join("','") + "') )";
+                oracleparams = {};
+                oracleparams= {rel_idn};
+                //console.log(query);
+                coreDB.executeSql(oracleconnection,query,oracleparams,oraclefmt,function(error,result){
+                    if(error){
+                        console.log(error);
+                        outJson["status"]="FAIL";
+                        outJson["message"]="Fail To Execute Query of insert gt_srch_rslt!";
+                        callback(null,outJson);   
+                    }else{
+                        var rowNum = result.rowsAffected;
+                        console.log("Insert",rowNum)
+                        if(rowNum > 0) {
+                            oracleparams = {rel_idn};
+                            query = "call pkgmkt.cal_quot( pRlnId=> :rel_idn)";
+                            //console.log(query);
+                            coreDB.executeSql(oracleconnection,query,oracleparams,oraclefmt,function(error,result){
+                                if(error){
+                                    outJson["status"]="FAIL";
+                                    outJson["message"]="Fail To Execute Query of Cal_Quot!";
+                                    callback(null,outJson);   
+                                }else{
+                                    outJson["status"]="SUCCESS";
+                                    outJson["message"]="SUCCESS";
+                                    callback(null,outJson);
+                                }
+                            })
+                        } else {
+                            outJson["status"]="FAIL";
+                            outJson["message"]="Fail to insert gt_srch_rslt";
+                            callback(null,outJson);  
+                        }
+                    }
+                })
+            }
+        })
+    } else if(rel_idn == ''){
+        outJson["status"] = "FAIL";
+        outJson["message"] = "rel_idn can not be blank";
+        callback(null, outJson);
+    }
+}
+
+function execInsertWebInvMasData(methodParam,oracleconnection){
+    return new Promise(function(resolve,reject) {
+        insertWebInvMasData(methodParam,oracleconnection,function (error, result) {
+            if(error){  
+                reject(error);
+            }
+            resolve(result);
+     });
+    });
+}
+
+function insertWebInvMasData(methodParam,oracleconnection,callback){
+    let nme_idn = methodParam.nme_idn;
+    let rel_idn = methodParam.rel_idn;
+    let inv_typ = methodParam.inv_typ;
+    let status = methodParam.status;
+    let outJson = {};
+   
+    let oraclefmt = {outFormat: oracledb.OBJECT};
+    let oracleparams = {};
+    var query=" select seq_inv_id.nextval inv_id from dual ";
+
+    console.log(query);
+    //console.log(oracleparams);
+    coreDB.executeSql(oracleconnection,query,oracleparams,oraclefmt,function(error,result){
+        if(error){
+            outJson["status"]="FAIL";
+            outJson["message"]="Fail To Execute Query!";
+            callback(null,outJson);   
+        }else{
+            var len = result.rows.length;
+            if (len > 0) {
+                let inv_id = result.rows[0].INV_ID;
+                oraclefmt = {};
+                let insertQ="insert into web_minv(dte, inv_id, log_id, usr_id, mcust_idn,  rel_idn, exh_rte, inv_typ, tm_pct, rln) "+
+                    "values(sysdate,:inv_id,0,0,:nme_idn,:rel_idn,1,:inv_typ,1,'USD')";
+
+                oracleparams = {};
+                oracleparams={inv_id,nme_idn,rel_idn,inv_typ};
+                 //console.log(insertQ);
+                 //console.log(oracleparams);
+                coreDB.executeSql(oracleconnection,insertQ,oracleparams,oraclefmt,function(error,result){
+                    if(error){
+                        coreDB.doRollBack(oracleconnection);
+                        outJson["status"]="FAIL";
+                        outJson["message"]="Error In insert web_minv Method!"+error.message;
+                        callback(null,outJson);
+                    }else{
+                        //console.log("mktg_salmas",result)                       
+                        coreDB.doCommit(oracleconnection);
+                        var rowCount = result.rowsAffected;
+                        if(rowCount!=0){     
+                            insertQ="insert into web_inv_dtl (inv_id, mstk_idn, cert, qty, cts, rte, quot, rap_dis, dte, stt) \n"+
+                                " select  :inv_id , stk_idn, cert_lab, qty, cts , cmp ,Quot, decode(rap_rte, 1, null, trunc((((Quot*100)/1)/rap_rte) - 100,2)) r_dis, sysdate, :status \n" +
+                                " from gt_srch_rslt where flg = 'I' ";
+        
+                            oracleparams = {};
+                            oracleparams={inv_id,status};
+                             //console.log(insertQ);
+                             //console.log(oracleparams);
+                            coreDB.executeSql(oracleconnection,insertQ,oracleparams,oraclefmt,function(error,result){
+                                if(error){
+                                    coreDB.doRollBack(oracleconnection);
+                                    outJson["status"]="FAIL";
+                                    outJson["message"]="Error In insert web_inv_dtl Method!"+error.message;
+                                    callback(null,outJson);
+                                }else{
+                                    //console.log("mktg_salmas",result)                       
+                                    coreDB.doCommit(oracleconnection);
+                                    var rowCount = result.rowsAffected;
+                                    if(rowCount!=0){       
+                                        oracleparams = {inv_id};
+                                        query = "call  memo_pkg.makeFromInv(:inv_id)";
+                                        //console.log(query);
+                                        coreDB.executeSql(oracleconnection,query,oracleparams,oraclefmt,function(error,result){
+                                            if(error){
+                                                outJson["status"]="FAIL";
+                                                outJson["message"]="Fail To Execute Query of makeFromInv!";
+                                                callback(null,outJson);   
+                                            }else{
+                                                outJson["result"]=inv_id;
+                                                outJson["status"]="SUCCESS";
+                                                outJson["message"]="SUCCESS";
+                                                callback(null,outJson);
+                                            }
+                                        })
+                                    }else{
+                                        coreDB.doRollBack(oracleconnection);
+                                        outJson["status"]="FAIL";
+                                        outJson["message"]="web_inv_dtl Insertion Failed!";
+                                        callback(null,outJson);
+                                    } 
+                                }
+                            }) 
+                        }else{
+                            coreDB.doRollBack(oracleconnection);
+                            outJson["status"]="FAIL";
+                            outJson["message"]="web_minv Insertion Failed!";
+                            callback(null,outJson);
+                        } 
+                    }
+                }) 
+            }
+        }
+    })          
+}
+
+function execGetInvoiceDtl(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getInvoiceDtl(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getInvoiceDtl(connection,paramJson,callback) {
+    let nme_idn = paramJson.nme_idn || '';
+    let pktIdnList = paramJson.pktIdnList || [];
+    let outJson = {};
+    let invoiceList = [];
+    
+    let oraclefmt = {outFormat: oracledb.OBJECT};
+    let oracleparams = {};
+    var query="  select b.inv_id,c.rel_idn,c.mcust_idn from mstk a,web_inv_dtl b,web_minv c \n"+ 
+        "where a.idn=b.mstk_idn and b.inv_id = c.inv_id and  b.stt in ('IS','CF')  and ( vnm in ('" + pktIdnList.join("','") + "') or tfl3 in ('" + pktIdnList.join("','") + "') ) \n"+
+        "and c.mcust_idn = :nme_idn ";
+    
+    oracleparams= {nme_idn};
+
+    //console.log(query);
+    //console.log(oracleparams);
+    coreDB.executeSql(connection,query,oracleparams,oraclefmt,function(error,result){
+        if(error){
+            outJson["status"]="FAIL";
+            outJson["message"]="Fail To Execute Query!";
+            callback(null,outJson);   
+        }else{
+            var len = result.rows.length;
+            if (len > 0) {
+                for(let i=0;i<len;i++){
+                    let inv_id = result.rows[0].INV_ID;
+                    invoiceList.push(inv_id);
+                }
+               
+                //console.log("invoiceList",invoiceList.length);
+                outJson["status"]="SUCCESS";
+                outJson["message"]="SUCCESS";
+                outJson["result"]=invoiceList;
+                callback(null,outJson);
+            }else{
+                outJson["status"]="FAIL";
+                outJson["message"]="Invoice Details not found.";
+                callback(null,outJson);
+            }
+        }
+    }) 
+}
+
+function execReturnInvoiceDtl(methodParam,oracleconnection){
+    return new Promise(function(resolve,reject) {
+        returnInvoiceDtl(methodParam,oracleconnection,function (error, result) {
+            if(error){  
+                reject(error);
+            }
+            resolve(result);
+     });
+    });
+}
+
+function returnInvoiceDtl(methodParam,oracleconnection,callback){
+    let invoiceList = methodParam.invoiceList || [];
+    let pktIdnList = methodParam.pktIdnList || [];
+    let status = methodParam.status;
+    let outJson = {};
+   
+    let oraclefmt = {};
+    let sql="update web_inv_dtl set stt = :status where inv_id in ("+invoiceList.join(",")+")";
+
+    let oracleparams = {};
+    oracleparams={status};
+        //console.log(sql);
+        //console.log(oracleparams);
+    coreDB.executeSql(oracleconnection,sql,oracleparams,oraclefmt,function(error,result){
+        if(error){
+            coreDB.doRollBack(oracleconnection);
+            outJson["status"]="FAIL";
+            outJson["message"]="Error In update web_inv_dtl Method!"+error.message;
+            callback(null,outJson);
+        }else{
+            //console.log("mktg_salmas",result)                       
+            coreDB.doCommit(oracleconnection);
+            var rowCount = result.rowsAffected;
+            if(rowCount!=0){     
+                sql="update mstk set stt='MKAV' where  ( vnm in ('" + pktIdnList.join("','") + "') or tfl3 in ('" + pktIdnList.join("','") + "') )  ";
+
+                oracleparams = {};
+                   // console.log(sql);
+                  //  console.log(oracleparams);
+                coreDB.executeSql(oracleconnection,sql,oracleparams,oraclefmt,function(error,result){
+                    if(error){
+                        coreDB.doRollBack(oracleconnection);
+                        outJson["status"]="FAIL";
+                        outJson["message"]="Error In update mstk Method!"+error.message;
+                        callback(null,outJson);
+                    }else{                    
+                        coreDB.doCommit(oracleconnection);
+                        var rowCount = result.rowsAffected;
+                        if(rowCount!=0){       
+                            outJson["status"]="SUCCESS";
+                            outJson["message"]="Packets return successfully";
+                            callback(null,outJson);       
+                        }else{
+                            coreDB.doRollBack(oracleconnection);
+                            outJson["status"]="FAIL";
+                            outJson["message"]="Mstk Updation Failed!";
+                            callback(null,outJson);
+                        } 
+                    }
+                }) 
+            }else{
+                coreDB.doRollBack(oracleconnection);
+                outJson["status"]="FAIL";
+                outJson["message"]="web_inv_dtl Updation Failed!";
+                callback(null,outJson);
+            } 
+        }
+    }) 
+                
+}
