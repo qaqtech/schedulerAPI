@@ -6164,9 +6164,9 @@ function getAttrDetails(methodParam, tpoolconn, callback) {
     });
 }
 
-function execUpdateStockM(methodParam, connection) {
+function execUpdateStockMData(methodParam, connection) {
     return new Promise(function (resolve, reject) {
-        updateStockM(methodParam, connection, function (error, result) {
+        updateStockMData(methodParam, connection, function (error, result) {
             if (error) {
                 reject(error);
             }
@@ -6175,11 +6175,12 @@ function execUpdateStockM(methodParam, connection) {
     });
 }
 
-function updateStockM(methodParam, connection, callback) {
+function updateStockMData(methodParam, connection, callback) {
     var logUsr = methodParam.logUsr || '';
     var reportNo = methodParam.reportNo || '';
     let coIdn = methodParam.coIdn;
     let attrMap = methodParam.attrMap || {};
+    let stock_idn = methodParam.stock_idn || [];
     let outJson = {};
     let updateQ = "";
     let params = [];
