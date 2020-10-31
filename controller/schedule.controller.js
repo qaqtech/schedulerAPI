@@ -6248,22 +6248,31 @@ exports.approvePackets = async function (req, res, oracleconnection, redirectPar
                 callback(null, nmeDtlResult);
             }
         } else if(status == 'RT' ){
-            methodParam = {};
-            methodParam["nme_idn"] = nme_idn;
-            methodParam["pktIdnList"] = pktIdnList;
-            let invoiceDtlResult = await execGetInvoiceDtl(methodParam,oracleconnection);
-            if(invoiceDtlResult.status == "SUCCESS"){
-                let invoiceList = invoiceDtlResult.result || [];
+            for(let i=0;i<pktIdnList.length;i++){
+                let pktIdn = pktIdnList[i];
 
                 methodParam = {};
-                methodParam["invoiceList"] = invoiceList;
-                methodParam["pktIdnList"] = pktIdnList;
-                methodParam["status"] = status;
-                invoiceDtlResult = await execReturnInvoiceDtl(methodParam,oracleconnection);
-                callback(null,invoiceDtlResult);
-            } else {
-                callback(null, invoiceDtlResult);
+                methodParam["nme_idn"] = nme_idn;
+                methodParam["pktIdn"] = pktIdn;
+                let invoiceDtlResult = await execGetInvoiceDtl(methodParam,oracleconnection);
+                if(invoiceDtlResult.status == "SUCCESS"){
+                    let inv_id = invoiceDtlResult.result || [];
+                    let mstkIdn = invoiceDtlResult.mstkIdn || '';
+                    let memo_id = invoiceDtlResult.memo_id || [];
+    
+                    methodParam = {};
+                    methodParam["inv_id"] = inv_id;
+                    methodParam["pktIdn"] = pktIdn;
+                    methodParam["status"] = status;
+                    methodParam["mstkIdn"] = mstkIdn;
+                    methodParam["memo_id"] = memo_id;
+                    invoiceDtlResult = await execReturnInvoiceDtl(methodParam,oracleconnection);
+                }
             }
+            outJson["result"] = resultFinal;
+            outJson["status"] = "SUCCESS";
+            outJson["message"] = "Packets Return successfully";
+            callback(null, outJson);        
         }  
     } else if(pktIdnList.length == 0){
         outJson["result"] = resultFinal;
@@ -6522,15 +6531,23 @@ function execGetInvoiceDtl(methodParam, tpoolconn) {
 
 function getInvoiceDtl(connection,paramJson,callback) {
     let nme_idn = paramJson.nme_idn || '';
-    let pktIdnList = paramJson.pktIdnList || [];
+    let pktIdn = paramJson.pktIdn || '';
     let outJson = {};
-    let invoiceList = [];
     
     let oraclefmt = {outFormat: oracledb.OBJECT};
     let oracleparams = {};
-    var query="  select b.inv_id,c.rel_idn,c.mcust_idn from mstk a,web_inv_dtl b,web_minv c \n"+ 
-        "where a.idn=b.mstk_idn and b.inv_id = c.inv_id and  b.stt in ('IS','CF')  and ( vnm in ('" + pktIdnList.join("','") + "') or tfl3 in ('" + pktIdnList.join("','") + "') ) \n"+
-        "and c.mcust_idn = :nme_idn ";
+    //var query="  select b.inv_id,c.rel_idn,c.mcust_idn,b.alc_memo,a.idn mstkIdn from mstk a,web_inv_dtl b,web_minv c \n"+ 
+    //    "where a.idn=b.mstk_idn and b.inv_id = c.inv_id and  b.stt in ('IS','CF')  and ( vnm in ('" + pktIdnList.join("','") + "') or tfl3 in ('" + pktIdnList.join("','") + "') ) \n"+
+    //    "and c.mcust_idn = :nme_idn ";
+    let query = "with alcId as ( \n"+
+        "select max(b.inv_id) mxId \n"+
+        "from mstk a,web_inv_dtl b,web_minv c  \n"+
+        "where a.idn=b.mstk_idn and b.inv_id = c.inv_id and  b.stt in ('IS','CF') \n"+
+        "and ( vnm = '"+pktIdn+"' or tfl3 = '"+pktIdn+"' ) \n"+
+        "and c.mcust_idn = :nme_idn and alc_memo is not null) \n"+
+        "select inv_id, alc_memo, mstk_idn \n"+
+        "from web_inv_dtl a, alcId \n"+
+        "where a.inv_id = alcId.mxId ";
     
     oracleparams= {nme_idn};
 
@@ -6544,15 +6561,15 @@ function getInvoiceDtl(connection,paramJson,callback) {
         }else{
             var len = result.rows.length;
             if (len > 0) {
-                for(let i=0;i<len;i++){
-                    let inv_id = result.rows[0].INV_ID;
-                    invoiceList.push(inv_id);
-                }
-               
-                //console.log("invoiceList",invoiceList.length);
+                let inv_id = result.rows[0].INV_ID;
+                let memo_id = result.rows[0].ALC_MEMO || '';
+                let mstkIdn = result.rows[0].MSTK_IDN;
+
                 outJson["status"]="SUCCESS";
                 outJson["message"]="SUCCESS";
-                outJson["result"]=invoiceList;
+                outJson["result"]=inv_id;
+                outJson["memo_id"]=memo_id;
+                outJson["mstkIdn"]=mstkIdn;
                 callback(null,outJson);
             }else{
                 outJson["status"]="FAIL";
@@ -6575,16 +6592,19 @@ function execReturnInvoiceDtl(methodParam,oracleconnection){
 }
 
 function returnInvoiceDtl(methodParam,oracleconnection,callback){
-    let invoiceList = methodParam.invoiceList || [];
-    let pktIdnList = methodParam.pktIdnList || [];
+    let inv_id = methodParam.inv_id || '';
+    let pktIdn = methodParam.pktIdn || '';
     let status = methodParam.status;
+    let memo_id = methodParam.memo_id || '';
+    let mstkIdn = methodParam.mstkIdn || '';
     let outJson = {};
    
     let oraclefmt = {};
-    let sql="update web_inv_dtl set stt = :status where inv_id in ("+invoiceList.join(",")+")";
+    let sql="update web_inv_dtl set stt = :status where \n"+
+        " inv_id =:inv_id and mstk_idn =:mstkIdn";
 
     let oracleparams = {};
-    oracleparams={status};
+    oracleparams={status,inv_id,mstkIdn};
         //console.log(sql);
         //console.log(oracleparams);
     coreDB.executeSql(oracleconnection,sql,oracleparams,oraclefmt,function(error,result){
@@ -6593,37 +6613,73 @@ function returnInvoiceDtl(methodParam,oracleconnection,callback){
             outJson["status"]="FAIL";
             outJson["message"]="Error In update web_inv_dtl Method!"+error.message;
             callback(null,outJson);
-        }else{
-            //console.log("mktg_salmas",result)                       
+        }else{                      
             coreDB.doCommit(oracleconnection);
             var rowCount = result.rowsAffected;
-            if(rowCount!=0){     
-                sql="update mstk set stt='MKAV' where  ( vnm in ('" + pktIdnList.join("','") + "') or tfl3 in ('" + pktIdnList.join("','") + "') )  ";
+            if(rowCount!=0){ 
+                sql="update jandtl set stt = :status where \n"+
+                " idn =:memo_id and mstk_idn =:mstkIdn ";
 
-                oracleparams = {};
-                   // console.log(sql);
-                  //  console.log(oracleparams);
-                coreDB.executeSql(oracleconnection,sql,oracleparams,oraclefmt,function(error,result){
-                    if(error){
+            oracleparams = {};
+            oracleparams={status,memo_id,mstkIdn};
+                //console.log(sql);
+                //console.log(oracleparams);
+            coreDB.executeSql(oracleconnection,sql,oracleparams,oraclefmt,function(error,result){
+                if(error){
+                    coreDB.doRollBack(oracleconnection);
+                    outJson["status"]="FAIL";
+                    outJson["message"]="Error In update jandtl Method!"+error.message;
+                    callback(null,outJson);
+                }else{                      
+                    coreDB.doCommit(oracleconnection);
+                    var rowCount = result.rowsAffected;
+                    if(rowCount!=0){     
+                        sql="update mstk set stt='MKAV' where  ( vnm =:pktIdn or tfl3 =:pktIdn )  ";
+
+                        oracleparams = {};
+                        oracleparams ={pktIdn};
+                        //console.log(sql);
+                        //console.log(oracleparams);
+                        coreDB.executeSql(oracleconnection,sql,oracleparams,oraclefmt,function(error,result){
+                            if(error){
+                                coreDB.doRollBack(oracleconnection);
+                                outJson["status"]="FAIL";
+                                outJson["message"]="Error In update mstk Method!"+error.message;
+                                callback(null,outJson);
+                            }else{                    
+                                coreDB.doCommit(oracleconnection);
+                                var rowCount = result.rowsAffected;
+                                if(rowCount!=0){  
+                                    oracleparams = {memo_id};
+                                    query = "call  jan_qty(:memo_id)";
+                                    //console.log(query);
+                                    coreDB.executeSql(oracleconnection,query,oracleparams,oraclefmt,function(error,result){
+                                        if(error){
+                                            outJson["status"]="FAIL";
+                                            outJson["message"]="Fail To Execute Query of makeFromInv!";
+                                            callback(null,outJson);   
+                                        }else{
+                                            outJson["status"]="SUCCESS";
+                                            outJson["message"]="Packets return successfully";
+                                            callback(null,outJson);     
+                                        }
+                                    })       
+                                }else{
+                                    coreDB.doRollBack(oracleconnection);
+                                    outJson["status"]="FAIL";
+                                    outJson["message"]="Mstk Updation Failed!";
+                                    callback(null,outJson);
+                                } 
+                            }
+                        }) 
+                    } else{
                         coreDB.doRollBack(oracleconnection);
                         outJson["status"]="FAIL";
-                        outJson["message"]="Error In update mstk Method!"+error.message;
+                        outJson["message"]="JanDtl Updation Failed!";
                         callback(null,outJson);
-                    }else{                    
-                        coreDB.doCommit(oracleconnection);
-                        var rowCount = result.rowsAffected;
-                        if(rowCount!=0){       
-                            outJson["status"]="SUCCESS";
-                            outJson["message"]="Packets return successfully";
-                            callback(null,outJson);       
-                        }else{
-                            coreDB.doRollBack(oracleconnection);
-                            outJson["status"]="FAIL";
-                            outJson["message"]="Mstk Updation Failed!";
-                            callback(null,outJson);
-                        } 
-                    }
-                }) 
+                    } 
+                }
+                })
             }else{
                 coreDB.doRollBack(oracleconnection);
                 outJson["status"]="FAIL";
