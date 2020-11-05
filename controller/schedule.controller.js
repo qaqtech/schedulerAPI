@@ -1634,23 +1634,23 @@ exports.updateExchangeRte =async function (req, res, connection, redirectParam, 
         methodParam["source"]=source;               
         let pgXrt = await execUpdatePGXrt(methodParam,connection);
         dtl["pgXrtResult"] = pgXrt;       
-        let oraXrt = await execUpdateOraXrt(methodParam);
-        dtl["oracleXrtResul"] = oraXrt;
+       // let oraXrt = await execUpdateOraXrt(methodParam);
+        //dtl["oracleXrtResul"] = oraXrt;
 
         methodParams = {};
         methodParams["logDetails"] = dtl;
         methodParams["log_idn"] = log_idn;
         let logResult = await execUpdateScheduleLog(methodParams,connection);
 
-        if(pgXrt.status== 'SUCCESS' && oraXrt.status=='SUCCESS'){
+        if(pgXrt.status== 'SUCCESS'){ //&& oraXrt.status=='SUCCESS'
             outJson["result"] = resultFinal;
             outJson["status"] = "SUCCESS";
             outJson["message"] = "Exh Rte updated Successfully!";
             callback(null, outJson);
         }else if(pgXrt.status== 'FAIL')
             callback(null, pgXrt);
-        else if( oraXrt.status=='FAIL')
-            callback(null, oraXrt);
+        //else if( oraXrt.status=='FAIL')
+        //    callback(null, oraXrt);
     } else if (exhRte == '') {
         outJson["result"] = resultFinal;
         outJson["status"] = "FAIL";
