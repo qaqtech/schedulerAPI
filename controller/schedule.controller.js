@@ -3,7 +3,7 @@ var oracledb = require("oracledb");
 const coreUtil = require('qaq-core-util');
 var async = require("async");
 var request = require('request');
-var https = require("http");
+var https = require("https");
 var urlExists = require('url-exists');
 var replaceall = require("replaceall");
 let AWS = require('aws-sdk');
@@ -1678,7 +1678,7 @@ function execGetMoneyConXrt(methodParam){
 function getMoneyConXrt(methodParam,callback){
     let outJson = {};
 
-    var url = "http://www.moneycontrol.com/currency/mcx-usdinr-price.html";
+    var url = "https://www.moneycontrol.com/currency/mcx-usdinr-price.html";
 
     https.get(url, (resp) => {
         let data = '';
@@ -1687,7 +1687,7 @@ function getMoneyConXrt(methodParam,callback){
         resp.on('data', (chunk) => {
             data += chunk;
         });
-
+        
         // The whole response has been received. Print out the result.
         resp.on('end', () => {
             let htmlData = data.toString();
@@ -1709,7 +1709,7 @@ function getMoneyConXrt(methodParam,callback){
     }).on("error", (err) => {
         console.log("Error: " + err.message);
         outJson["status"]="FAIL";
-        outJson["message"]="Error In get xrt from money control!"+error.message;
+        outJson["message"]="Error In get xrt from money control!"+err.message;
         callback(null,outJson);
     });
 }
