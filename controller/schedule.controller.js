@@ -1591,6 +1591,7 @@ exports.updateExchangeRte =async function (req, res, connection, redirectParam, 
     let exhRte = '';
     let methodParam={};
     let dtl = {};
+    let currency_idn = '';
 
     let moneyXrtResult = await execGetMoneyConXrt(methodParam);
     if(moneyXrtResult.status == 'SUCCESS'){
@@ -1606,6 +1607,7 @@ exports.updateExchangeRte =async function (req, res, connection, redirectParam, 
             let pgXrtResult = await execGetPGCurrentXrt(methodParam,connection);
             if(pgXrtResult.status == 'SUCCESS'){
                 let pgxrt = pgXrtResult["data"] || '';
+                currency_idn = pgXrtResult["currency_idn"] || '';
                 pgxrt = parseFloat(pgxrt) || '';
                 console.log("pgxrt",pgxrt);
                 if(xrt != '' && pgxrt != ''){
@@ -1616,7 +1618,21 @@ exports.updateExchangeRte =async function (req, res, connection, redirectParam, 
                         exhRte = xrt;
                 }
             }    
+        } else {
+            var param={};
+            param["coIdn"]=coIdn;
+            param["formatNme"]="updatexrt";
+            param["status"]="FAIL";
+            param["message"]="Money control exchange rate not found";
+            let mailResult = await execSendXrtMail(param,connection); 
         }
+    } else {
+        var param={};
+        param["coIdn"]=coIdn;
+        param["formatNme"]="updatexrt";
+        param["status"]="FAIL";
+        param["message"]=moneyXrtResult.message;
+        let mailResult = await execSendXrtMail(param,connection); 
     }
     console.log("current exhRte",exhRte);
     dtl["updatedXrt"] = exhRte;
@@ -1625,13 +1641,14 @@ exports.updateExchangeRte =async function (req, res, connection, redirectParam, 
     methodParams["log_idn"] = log_idn;
     let logResult = await execUpdateScheduleLog(methodParams,connection);
 
-    if (exhRte != '' && currency != '') {
+    if (exhRte != '' && currency != '' && currency_idn != '') {
         dtl = {};
         methodParam={};
         methodParam["exhRte"]=exhRte;
         methodParam["coIdn"]=coIdn;
         methodParam["currency"]=currency; 
-        methodParam["source"]=source;               
+        methodParam["source"]=source;    
+        methodParam["currency_idn"]= currency_idn;          
         let pgXrt = await execUpdatePGXrt(methodParam,connection);
         dtl["pgXrtResult"] = pgXrt;       
        // let oraXrt = await execUpdateOraXrt(methodParam);
@@ -1651,7 +1668,7 @@ exports.updateExchangeRte =async function (req, res, connection, redirectParam, 
             callback(null, pgXrt);
         //else if( oraXrt.status=='FAIL')
         //    callback(null, oraXrt);
-    } else if (exhRte == '') {
+    } else if (exhRte == '') { 
         outJson["result"] = resultFinal;
         outJson["status"] = "FAIL";
         outJson["message"] = "Please Verify Exh Rte Can not be blank!";
@@ -1660,6 +1677,11 @@ exports.updateExchangeRte =async function (req, res, connection, redirectParam, 
         outJson["result"] = resultFinal;
         outJson["status"] = "FAIL";
         outJson["message"] = "Please Verify Currency Can not be blank!";
+        callback(null, outJson);
+    }  else if (currency_idn == '') {
+        outJson["result"] = resultFinal;
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify Currency Idn Can not be blank!";
         callback(null, outJson);
     }
 }
@@ -1733,7 +1755,7 @@ function getPGCurrentXrt(methodParam,tpoolconn,callback){
     let outJson = {};
 
    
-    let updateQ="select a.xrte from currency_xrt a, "+
+    let updateQ="select a.xrte,a.currency_idn from currency_xrt a, "+
         " gen_currency b where a.currency_idn = b.currency_idn "+
         "and a.co_idn=$1 and a.stt=1 and a.end_dt is null and b.nme=$2";
 
@@ -1753,8 +1775,10 @@ function getPGCurrentXrt(methodParam,tpoolconn,callback){
             if(rowCount>0){
                 var resultRow=result.rows[0] || {};
                 var xrte = resultRow["xrte"];
+                let currency_idn = resultRow["currency_idn"];
                 //console.log(currencyIdn);
                 outJson["data"] = xrte;
+                outJson["currency_idn"] = currency_idn;
                 outJson["status"] = "SUCCESS";
                 outJson["message"] = "SUCCESS";
                 callback(null, outJson);            
@@ -1784,6 +1808,7 @@ function updatePGXrt(methodParam,tpoolconn,callback){
     var logUsr = methodParam.logUsr || '';
     var currency = methodParam.currency;
     let source = methodParam.source || 'api';
+    let currencyIdn = methodParam.currency_idn || '';
     let params=[];
     let fmt = {};
     let outJson = {};
@@ -1791,7 +1816,7 @@ function updatePGXrt(methodParam,tpoolconn,callback){
    
     let updateQ="update currency_xrt a set stt=0,end_dt=current_timestamp,modified_by=$1,modified_ts= current_timestamp "+
         "from gen_currency b where a.currency_idn = b.currency_idn "+
-        "and a.co_idn=$2 and a.end_dt is null and b.nme=$3 RETURNING a.currency_idn ";
+        "and a.co_idn=$2 and a.end_dt is null and b.nme=$3 ";
 
     params.push(logUsr);
     params.push(coIdn);
@@ -1807,10 +1832,8 @@ function updatePGXrt(methodParam,tpoolconn,callback){
             callback(null,outJson);
         }else{
             var rowCount = result.rowCount;
-            if(rowCount>0){
-                var resultRow=result.rows[0] || {};
-                var currencyIdn = resultRow["currency_idn"];
-                //console.log(currencyIdn);
+            //if(rowCount>0){
+                //console.log(currencyIdn); \\ if xrt updation fail that time also e have to add fresh entry for xrt
 
                 var insertQ="insert into currency_xrt(co_idn,currency_idn,xrte,src,pvt,stt,created_ts,created_by) "+
                     "values($1,$2,$3,$4,$5,$6,current_timestamp,$7)";
@@ -1825,8 +1848,14 @@ function updatePGXrt(methodParam,tpoolconn,callback){
                 params.push(logUsr);
                 // console.log(insertQ);
                 // console.log(params);
-                coreDB.executeTransSql(tpoolconn,insertQ,params,fmt,function(error,result){
+                coreDB.executeTransSql(tpoolconn,insertQ,params,fmt,async function(error,result){
                     if(error){
+                        var param={};
+                        param["coIdn"]=coIdn;
+                        param["formatNme"]="updatexrt";
+                        param["status"]="FAIL";
+                        param["message"]="Error In insert currency_xrt Method!"+error.message;
+                        let mailResult = await execSendXrtMail(param,tpoolconn); 
                         coreDB.doTransRollBack(tpoolconn);
                         outJson["status"]="FAIL";
                         outJson["message"]="Error In insert currency_xrt Method!"+error.message;
@@ -1840,17 +1869,23 @@ function updatePGXrt(methodParam,tpoolconn,callback){
                             outJson["message"] = "SUCCESS";
                             callback(null, outJson);
                         }else{
+                            var param={};
+                            param["coIdn"]=coIdn;
+                            param["formatNme"]="updatexrt";
+                            param["status"]="FAIL";
+                            param["message"]="CurrencyXrt Insertion Failed!";
+                            let mailResult = await execSendXrtMail(param,tpoolconn); 
                             outJson["status"]="FAIL";
                             outJson["message"]="CurrencyXrt Insertion Failed!";
                             callback(null,outJson);
                         } 
                     }
                 })
-            }else{
-                outJson["status"]="FAIL";
-                outJson["message"]="CurrencyXrt Updation Failed!";
-                callback(null,outJson);
-            }    
+            //}else{
+            //    outJson["status"]="FAIL";
+            //    outJson["message"]="CurrencyXrt Updation Failed!";
+            //    callback(null,outJson);
+            //}    
         }
     });
 }
@@ -1931,6 +1966,116 @@ function updateOraXrt(methodParam,callback){
             });
         }
     })
+}
+
+function execSendXrtMail(methodParam,tpoolconn){
+    return new Promise(function(resolve,reject) {
+        xrtMailSend(tpoolconn,methodParam, function (error, result) {
+            if(error){  
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function xrtMailSend(connection,paramJson,callback){
+    var formatNme = paramJson.formatNme || '';
+    var coIdn = paramJson.coIdn || '';
+    var status = paramJson.status || '';
+    var message = paramJson.message || '';
+    let prefix = paramJson.prefix || '';
+    var outJson = {};
+    var logDtl = {};
+    var cachedUrl = require('qaq-core-util').cachedUrl;
+    if(formatNme != '' && coIdn !=''){
+        var params = {
+            "db":connection,
+            "format":formatNme,
+            "coIdn":coIdn
+        }
+        coreUtil.mailFormat(params).then(data =>{
+            data = data || {};
+            var isData=Object.keys(data) || [];
+            var isDatalen=isData.length;
+            if(isDatalen > 0){
+                if(data["status"] == 'SUCCESS'){
+                    //console.log(data);status
+                    var subject = data["subject"];
+                    var d=new Date();
+                    d.setHours(d.getHours() + 5);
+                    d.setMinutes(d.getMinutes() + 30);
+                    let dte = dateFormat(d,'dd-mm-yyyy hh:MM:ss')
+                    
+                    var body = data["body"];
+                    body = body.replace("~tm",dte); 
+                    body = body.replace("~status",status);  
+                    body = body.replace("~msg",message);
+                    
+                    var recipientlist = data["recipientlist"];
+                    var to = recipientlist["to"];
+                    var cc= recipientlist["cc"];
+                    var bcc = recipientlist["bcc"];
+                  //  console.log("to "+to);
+                  //  console.log("subject "+subject);
+                   // console.log("body "+body);
+
+                    coreUtil.getCache(prefix+"dbms_"+coIdn,cachedUrl).then(dbmsDtldata =>{
+                        if(dbmsDtldata == null){
+                               outJson["status"]="FAIL";
+                               outJson["message"]="Fail to get DBMS Attribute";
+                               callback(null,outJson);
+                        }else{ 
+                            dbmsDtldata = JSON.parse(dbmsDtldata);
+                            var smtpuser = dbmsDtldata["smtpuser"];
+                            var smtppassword = dbmsDtldata["smtppassword"];
+                            var smtphost = dbmsDtldata["smtphost"];
+                            var smtpport = dbmsDtldata["smtpport"];
+                            var senderId = dbmsDtldata["senderid"];
+                    
+                            var mailOptions = {
+                                smtphost:smtphost,
+                                smtpuser:smtpuser,
+                                smtppassword:smtppassword,
+                                smtpport:smtpport,
+                                secure:true,
+                                from: senderId, // sender address
+                                cc:cc,
+                                bcc:bcc,
+                                to: to, // list of receivers
+                                subject: subject, // Subject line
+                                html: body // html body
+                                };
+                            //  console.log(mailOptions);
+                            coreUtil.sendMail(mailOptions);
+                            
+                            outJson["result"]='';
+                            outJson["status"]="SUCCESS";
+                            outJson["message"]="Mail Sent Successfully!";
+                            callback(null,outJson);
+                        }
+                    })
+                }else{
+                    callback(null,data);
+                }
+            } else{
+                outJson["result"]='';
+                outJson["status"]="FAIL";
+                outJson["message"]="Please Verify Format or Client Idn Parameter!";
+                callback(null,outJson);
+            }    
+         });   
+    }else if(formatNme == ''){
+         outJson["result"]='';
+         outJson["status"]="FAIL";
+         outJson["message"]="Please Verify Format Name Parameter";
+         callback(null,outJson);
+    }else if(coIdn == ''){
+        outJson["result"]='';
+        outJson["status"]="FAIL";
+        outJson["message"]="Please Verify Company Idn Parameter";
+        callback(null,outJson);
+   }
 }
 
 exports.updateMFGData = function(req,res,tpoolconn,redirectParam,callback) {
