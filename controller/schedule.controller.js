@@ -1600,6 +1600,16 @@ exports.updateExchangeRte =async function (req, res, connection, redirectParam, 
         data = coreUtil.floorFigure(data, 2);
         let xrt = parseFloat(data) || '';
         console.log("xrt",xrt);
+        if(xrt == ''){
+            moneyXrtResult = await execGetXrtNew(methodParam);
+            if(moneyXrtResult.status == 'SUCCESS'){
+                data = moneyXrtResult["data"] || '';
+                dtl["moneyControlXrt"] = data;
+                data = coreUtil.floorFigure(data, 2);
+                xrt = parseFloat(data) || '';
+                console.log("xrtNew",xrt);
+            }
+        }
         if(xrt != ''){
             methodParam={};
             methodParam["coIdn"]=coIdn;
@@ -1617,7 +1627,7 @@ exports.updateExchangeRte =async function (req, res, connection, redirectParam, 
                     if(parseFloat(xrt_diff) < 1.50 )
                         exhRte = xrt;
                 }
-            }    
+            } 
         } else {
             var param={};
             param["coIdn"]=coIdn;
@@ -1633,7 +1643,7 @@ exports.updateExchangeRte =async function (req, res, connection, redirectParam, 
         param["status"]="FAIL";
         param["message"]=moneyXrtResult.message;
         let mailResult = await execSendXrtMail(param,connection); 
-    }
+    }   
     console.log("current exhRte",exhRte);
     dtl["updatedXrt"] = exhRte;
     let methodParams = {};
@@ -2076,6 +2086,59 @@ function xrtMailSend(connection,paramJson,callback){
         outJson["message"]="Please Verify Company Idn Parameter";
         callback(null,outJson);
    }
+}
+
+function execGetXrtNew(methodParam){
+    return new Promise(function(resolve,reject) {
+        getXrtNew(methodParam, function (error, result) {
+            if(error){  
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getXrtNew(methodParam,callback){
+    let outJson = {};
+
+    var url = "https://www.moneycontrol.com/mccode/currencies/";
+
+    https.get(url, (resp) => {
+        let data = '';
+
+        // A chunk of data has been recieved.
+        resp.on('data', (chunk) => {
+            data += chunk;
+        });
+        
+        // The whole response has been received. Print out the result.
+        resp.on('end', () => {
+            let htmlData = data.toString();
+            //console.log("htmlData",htmlData)
+            let str = 'FR gd14"><strong>';
+            let fullPageArr = htmlData.split(str);
+            let valArr = fullPageArr[1] || '';
+            //console.log("valArr",valArr);
+            let val = valArr.split("uparrow_rd_rad");
+            let valFirst = val[0] || '';
+            //console.log("valFirst",valFirst)
+            let strong = valFirst.split("<span class");
+            let strongFirst = strong[0] || '';
+            //strongFirst = replaceall("'><strong>","",strongFirst);
+            console.log("MoneyControlXRT: ",strongFirst);
+            outJson["data"] = strongFirst;
+            outJson["status"] = "SUCCESS";
+            outJson["message"] = "SUCCESS";
+            callback(null, outJson);
+        });
+
+    }).on("error", (err) => {
+        console.log("Error: " + err.message);
+        outJson["status"]="FAIL";
+        outJson["message"]="Error In get xrt from money control!"+err.message;
+        callback(null,outJson);
+    });
 }
 
 exports.updateMFGData = function(req,res,tpoolconn,redirectParam,callback) {
