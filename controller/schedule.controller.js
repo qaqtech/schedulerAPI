@@ -4002,6 +4002,7 @@ exports.fullStockSync = async function(req,res,tpoolconn,redirectParam,callback)
     let source = redirectParam.source || req.body.source;
     let log_idn = redirectParam.log_idn;
     let poolName = redirectParam.poolName;
+    let prefix = redirectParam.prefix || '';
     var outJson={};
 
     let portalList = req.body.portalList || [];
@@ -4029,6 +4030,7 @@ exports.fullStockSync = async function(req,res,tpoolconn,redirectParam,callback)
         methodParam["minutes"] = minutes;
         methodParam["portalList"] = portalList;
         methodParam["source"] = source;
+        methodParam["prefix"] = prefix;
         let syncResult =await execGetSyncQueryStart(methodParam,tpoolconn);
     } 
     outJson["status"] = "SUCCESS";
@@ -4057,6 +4059,7 @@ function getSyncQueryStart(redirectParam,tpoolconn,callback) {
     let days = redirectParam.days || '';
     let minutes =  redirectParam.minutes || '';
     let source = redirectParam.source;
+    let prefix = redirectParam.prefix || '';
     var outJson={};
 
     let fmt = {};
@@ -4098,6 +4101,7 @@ function getSyncQueryStart(redirectParam,tpoolconn,callback) {
                 methodParam["days"] = days;
                 methodParam["minutes"] = minutes;
                 methodParam["source"] = source;
+                methodParam["prefix"] = prefix;
                 let syncResult = execGetSyncStart(methodParam);
                 outJson["status"] = "SUCCESS";
                 outJson["message"] = "SUCCESS";
@@ -4131,6 +4135,7 @@ async function getSyncStart(redirectParam,callback) {
     let days = redirectParam.days || '';
     let minutes =  redirectParam.minutes || '';
     let source = redirectParam.source;
+    let prefix = redirectParam.prefix || '';
     var outJson={};
 
     for(let i=0;i<syncData.length;i++){
@@ -4149,6 +4154,7 @@ async function getSyncStart(redirectParam,callback) {
         methodParam["minutes"] = minutes;
         methodParam["service_url"] = data.service_url;
         methodParam["source"] = source;
+        methodParam["prefix"] = prefix;
         //console.log("methodParam",methodParam);
         let syncResult =await execGetSyncDtl(methodParam);
     } 
@@ -4182,6 +4188,7 @@ async function getSyncDtl(redirectParam,callback) {
     let minutes =  redirectParam.minutes || '';
     let service_url = redirectParam.service_url;
     let source = redirectParam.source;
+    let prefix = redirectParam.prefix || '';
     var outJson={};
 
     var poolsList= require('qaq-core-db').poolsList;
@@ -4215,7 +4222,7 @@ async function getSyncDtl(redirectParam,callback) {
                     let packetDetails = fileObj["packetDetails"] || []; 
                     let formatNme = fileObj["formatNme"] || '';
                     var cachedUrl = require('qaq-core-util').cachedUrl;
-                    let dbmsDtldata = await coreUtil.getCache("dbms_"+coIdn,cachedUrl); 
+                    let dbmsDtldata = await coreUtil.getCache(prefix+"dbms_"+coIdn,cachedUrl); 
                     dbmsDtldata = JSON.parse(dbmsDtldata); 
                     let files_url = dbmsDtldata["files_url"] || '';
 
