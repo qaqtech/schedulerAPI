@@ -6474,7 +6474,7 @@ exports.approvePackets = async function (req, res, oracleconnection, redirectPar
                     let inv_id = invoiceDtlResult.result || [];
                     let mstkIdn = invoiceDtlResult.mstkIdn || '';
                     let memo_id = invoiceDtlResult.memo_id || [];
-    
+  
                     methodParam = {};
                     methodParam["inv_id"] = inv_id;
                     methodParam["pktIdn"] = pktIdn;
@@ -6754,15 +6754,20 @@ function getInvoiceDtl(connection,paramJson,callback) {
     //var query="  select b.inv_id,c.rel_idn,c.mcust_idn,b.alc_memo,a.idn mstkIdn from mstk a,web_inv_dtl b,web_minv c \n"+ 
     //    "where a.idn=b.mstk_idn and b.inv_id = c.inv_id and  b.stt in ('IS','CF')  and ( vnm in ('" + pktIdnList.join("','") + "') or tfl3 in ('" + pktIdnList.join("','") + "') ) \n"+
     //    "and c.mcust_idn = :nme_idn ";
-    let query = "with alcId as ( \n"+
-        "select max(b.inv_id) mxId \n"+
+    //let query = "with alcId as ( \n"+
+    //    "select max(b.inv_id) mxId \n"+
+    //    "from mstk a,web_inv_dtl b,web_minv c  \n"+
+    //    "where a.idn=b.mstk_idn and b.inv_id = c.inv_id and  b.stt in ('IS','CF') \n"+
+    //    "and ( vnm = '"+pktIdn+"' or tfl3 = '"+pktIdn+"' ) \n"+
+    ///    "and c.mcust_idn = :nme_idn and alc_memo is not null) \n"+
+    //    "select inv_id, alc_memo, mstk_idn \n"+
+    //    "from web_inv_dtl a, alcId \n"+
+    //    "where a.inv_id = alcId.mxId ";
+    let query = "select max(b.inv_id) mxId, a.idn mstk_idn,b.alc_memo \n"+
         "from mstk a,web_inv_dtl b,web_minv c  \n"+
         "where a.idn=b.mstk_idn and b.inv_id = c.inv_id and  b.stt in ('IS','CF') \n"+
-        "and ( vnm = '"+pktIdn+"' or tfl3 = '"+pktIdn+"' ) \n"+
-        "and c.mcust_idn = :nme_idn and alc_memo is not null) \n"+
-        "select inv_id, alc_memo, mstk_idn \n"+
-        "from web_inv_dtl a, alcId \n"+
-        "where a.inv_id = alcId.mxId ";
+        "and vnm = '"+pktIdn+"' and c.mcust_idn = :nme_idn and alc_memo is not null \n"+
+        "group by a.idn,alc_memo ";
     
     oracleparams= {nme_idn};
 
@@ -6776,7 +6781,7 @@ function getInvoiceDtl(connection,paramJson,callback) {
         }else{
             var len = result.rows.length;
             if (len > 0) {
-                let inv_id = result.rows[0].INV_ID;
+                let inv_id = result.rows[0].MXID;
                 let memo_id = result.rows[0].ALC_MEMO || '';
                 let mstkIdn = result.rows[0].MSTK_IDN;
 
