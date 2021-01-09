@@ -6434,8 +6434,9 @@ exports.approvePackets = async function (req, res, oracleconnection, redirectPar
     let resultFinal = {};
     let outJson = {}; 
     let methodParam = {};   
+    let pktIdnListLen = pktIdnList.length;
 
-    if(pktIdnList.length > 0 && nme_idn != ''){
+    if(pktIdnListLen > 0 && nme_idn != ''){
         if(status == 'CF' || status == 'IS'){
             methodParam = {};
             methodParam["nme_idn"] = nme_idn;
@@ -6447,7 +6448,9 @@ exports.approvePackets = async function (req, res, oracleconnection, redirectPar
                 methodParam["rel_idn"] = rel_idn;
                 methodParam["pktIdnList"] = pktIdnList;
                 let pktDtlResult = await execInsertPktDataToGt(methodParam,oracleconnection);
-                if(pktDtlResult.status == "SUCCESS"){
+                if(pktDtlResult.status == "SUCCESS" && pktDtlResult.message == "SUCCESS"){
+                    let avlPacketList = pktDtlResult["result"] || [];
+                    let avlPacketListLen = avlPacketList.length;
                    
                     methodParam = {};
                     methodParam["rel_idn"] = rel_idn;
@@ -6455,7 +6458,32 @@ exports.approvePackets = async function (req, res, oracleconnection, redirectPar
                     methodParam["status"] = status;
                     methodParam["inv_typ"] = typ;
                     let invResult = await execInsertWebInvMasData(methodParam,oracleconnection);
-                    callback(null,invResult);
+                    if(invResult.status == 'SUCCESS'){
+                        if(parseInt(pktIdnListLen) == parseInt(avlPacketListLen)){
+                            resultFinal["invId"] = invResult["result"];
+                            resultFinal["validPackets"] = avlPacketList;
+                            outJson["result"] = resultFinal;
+                            outJson["status"] = "SUCCESS";
+                            outJson["message"] = "SUCCESS";//alreadyApvPacketList.toString()+" This packets are already approved.";
+                            callback(null, outJson); 
+                        }else {
+                            //console.log("pktIdnList",pktIdnList);
+                            //console.log("avlPacketList",avlPacketList);
+                            let alreadyApvPacketList = pktIdnList.filter(function(val) {
+                                    return avlPacketList.indexOf(val) == -1;
+                              });
+                            
+                            resultFinal["invId"] = invResult["result"] || 1234;
+                            resultFinal["invalidPackets"] = alreadyApvPacketList;
+                            resultFinal["validPackets"] = avlPacketList;
+                            outJson["result"] = resultFinal;
+                            outJson["status"] = "SUCCESS";
+                            outJson["message"] = "SUCCESS";//alreadyApvPacketList.toString()+" This packets are already approved.";
+                            callback(null, outJson); 
+                        }
+                    } else {
+                        callback(null, invResult); 
+                    } 
                 } else {
                     callback(null,pktDtlResult);
                 }
@@ -6489,7 +6517,7 @@ exports.approvePackets = async function (req, res, oracleconnection, redirectPar
             outJson["message"] = "Packets Return successfully";
             callback(null, outJson);        
         }  
-    } else if(pktIdnList.length == 0){
+    } else if(pktIdnListLen == 0){
         outJson["result"] = resultFinal;
         outJson["status"] = "FAIL";
         outJson["message"] = "pktIdnList can not be blank";
@@ -6564,6 +6592,7 @@ function insertPktDataToGt(redirectParam,oracleconnection,callback){
     let pktIdnList = redirectParam.pktIdnList || [];
     let rel_idn = redirectParam.rel_idn || '';
     let outJson = {};
+    let resultFinal = {};
 
     if(rel_idn != ''){
         var oracleparams = {};
@@ -6578,43 +6607,72 @@ function insertPktDataToGt(redirectParam,oracleconnection,callback){
             }else{
                 var rowNum = result.rowsAffected;
                 console.log("delete",rowNum)
-                query = "Insert into gt_srch_rslt ( rln_idn, srch_id, pkt_ty, stk_idn, vnm,rmk, qty, cts, pkt_dte, stt,prte, cmp, rap_rte, cert_lab, cert_no, flg, sk1, quot, rap_dis ) \n"+
-                    "select  :rel_idn,1 srch_id, b.pkt_ty, b.idn, b.vnm, b.tfl3, decode(b.pkt_ty, 'NR', b.qty, b.qty - nvl(qty_iss,0)) qty,decode(b.pkt_ty, 'NR', b.cts, b.cts - nvl(cts_iss, 0)) cts,\n"+
-                    " b.dte, b.stt,b.fcpr, nvl(upr, cmp) rte, b.rap_rte, b.cert_lab, b.cert_no,"+
-                    " 'I' flg, sk1, nvl(upr,cmp) , decode(b.rap_rte, 1, null, trunc((nvl(upr,cmp)/rap_rte*100)-100, 2)) rap_dis "+ 
-                    "from mstk b where b.stt in ('MKAV','BRAV','LB_PRI','MKIS','MKWH','MKEI') and ( vnm in ('" + pktIdnList.join("','") + "') or tfl3 in ('" + pktIdnList.join("','") + "') )";
+                query =  "select  b.vnm \n"+
+                    "from mstk b where b.stt in ('MKAV','BRAV','LB_PRI','MKIS','MKWH','MKEI') and ( vnm in ('" + pktIdnList.join("','") + "') or tfl3 in ('" + pktIdnList.join("','") + "') )  ";
                 oracleparams = {};
-                oracleparams= {rel_idn};
+                oraclefmt = {outFormat: oracledb.OBJECT};
                 //console.log(query);
+                //console.log(oracleparams);
                 coreDB.executeSql(oracleconnection,query,oracleparams,oraclefmt,function(error,result){
                     if(error){
                         console.log(error);
                         outJson["status"]="FAIL";
-                        outJson["message"]="Fail To Execute Query of insert gt_srch_rslt!";
+                        outJson["message"]="Fail To Execute Query of select mstk!";
                         callback(null,outJson);   
                     }else{
-                        var rowNum = result.rowsAffected;
-                        console.log("Insert",rowNum)
-                        if(rowNum > 0) {
-                            oracleparams = {rel_idn};
-                            query = "call pkgmkt.cal_quot( pRlnId=> :rel_idn)";
-                            //console.log(query);
-                            coreDB.executeSql(oracleconnection,query,oracleparams,oraclefmt,function(error,result){
-                                if(error){
-                                    outJson["status"]="FAIL";
-                                    outJson["message"]="Fail To Execute Query of Cal_Quot!";
-                                    callback(null,outJson);   
-                                }else{
-                                    outJson["status"]="SUCCESS";
-                                    outJson["message"]="SUCCESS";
-                                    callback(null,outJson);
-                                }
-                            })
-                        } else {
-                            outJson["status"]="FAIL";
-                            outJson["message"]="Fail to insert gt_srch_rslt";
-                            callback(null,outJson);  
+                        let len = result.rows.length;
+                        let avlPacketList = [];
+                        //console.log(len);
+                        for(let i=0;i<len;i++){
+                            let obj = result.rows[i] || {};
+                            let vnm = obj.VNM || '';
+                            //console.log(vnm);
+                            avlPacketList.push(vnm);
                         }
+                        query = "Insert into gt_srch_rslt ( rln_idn, srch_id, pkt_ty, stk_idn, vnm,rmk, qty, cts, pkt_dte, stt,prte, cmp, rap_rte, cert_lab, cert_no, flg, sk1, quot, rap_dis ) \n"+
+                            "select  :rel_idn,1 srch_id, b.pkt_ty, b.idn, b.vnm, b.tfl3, decode(b.pkt_ty, 'NR', b.qty, b.qty - nvl(qty_iss,0)) qty,decode(b.pkt_ty, 'NR', b.cts, b.cts - nvl(cts_iss, 0)) cts,\n"+
+                            " b.dte, b.stt,b.fcpr, nvl(upr, cmp) rte, b.rap_rte, b.cert_lab, b.cert_no,"+
+                            " 'I' flg, sk1, nvl(upr,cmp) , decode(b.rap_rte, 1, null, trunc((nvl(upr,cmp)/rap_rte*100)-100, 2)) rap_dis "+ 
+                            "from mstk b where b.stt in ('MKAV','BRAV','LB_PRI','MKIS','MKWH','MKEI') and ( vnm in ('" + pktIdnList.join("','") + "') or tfl3 in ('" + pktIdnList.join("','") + "') )  ";
+                        oracleparams = {};
+                        oracleparams= {rel_idn};
+                        oraclefmt = {autoCommit:true};
+                        //console.log(query);
+                        //console.log(oracleparams);
+                        coreDB.executeSql(oracleconnection,query,oracleparams,oraclefmt,function(error,result){
+                            if(error){
+                                console.log(error);
+                                outJson["status"]="FAIL";
+                                outJson["message"]="Fail To Execute Query of insert gt_srch_rslt!";
+                                callback(null,outJson);   
+                            }else{
+                                var rowNum = result.rowsAffected;
+                                console.log("Insert",rowNum)
+                                if(rowNum > 0) {
+                                    oracleparams = {rel_idn};
+                                    query = "call pkgmkt.cal_quot( pRlnId=> :rel_idn)";
+                                    //console.log(query);
+                                    coreDB.executeSql(oracleconnection,query,oracleparams,oraclefmt,function(error,result){
+                                        if(error){
+                                            outJson["status"]="FAIL";
+                                            outJson["message"]="Fail To Execute Query of Cal_Quot!";
+                                            callback(null,outJson);   
+                                        }else{
+                                            outJson["result"] = avlPacketList;
+                                            outJson["status"]="SUCCESS";
+                                            outJson["message"]="SUCCESS";
+                                            callback(null,outJson);
+                                        }
+                                    })
+                                } else {
+                                    resultFinal["invalidPackets"] = pktIdnList;
+                                    outJson["result"] = resultFinal;
+                                    outJson["status"]="SUCCESS";
+                                    outJson["message"]="All given packets are approved already";
+                                    callback(null,outJson);  
+                                }
+                            }
+                        })
                     }
                 })
             }
