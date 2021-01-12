@@ -404,7 +404,7 @@ async function getPacketDetails(connection,paramJson,callback) {
                 "and b.stock_idn = s.stock_idn and s.co_idn=$3 "+
                 "  and sp.nme=a.process_nme and sp.co_idn=$4 and sp.stt=1 "+
                 "and c.buyer_terms_idn= b.buyer_terms_idn  "+
-                "and b.alloc_status = 0 and b.alloc='rej' and COALESCE(b.addl_attr ->> 'mail_send','P') = 'P' and a.created_ts::date = current_date "+  
+                "and b.alloc_status = 0 and (b.alloc='rej' or ignore_yn = 'yes') and COALESCE(b.addl_attr ->> 'mail_send','P') = 'P' and a.created_ts::date = current_date "+  
                 "order by buyer,s.sort ";                      
 
             params.push(processNme);
