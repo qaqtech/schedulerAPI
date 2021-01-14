@@ -13,6 +13,7 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
     var timePeriod = req.body.timePeriod || '15';
 
     var coIdn = redirectParam.coIdn;
+    var prefix = redirectParam.prefix;
     let source = redirectParam.source || req.body.source;
     let outJson = {};
     let methodParam = {};
@@ -58,9 +59,9 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                 let passwordlist = fileOptionDtl["password"] || [];
                 passwordlist = JSON.parse(passwordlist);
 
-                //console.log("packetDtlList length ",packetDtlList.length);
+                console.log("packetDtlList length ",packetDtlList.length);
                 //console.log("usernamelist",usernamelist);
-                if(pktIdnList.length > 0){
+                if(pktIdnLists.length > 0){
                     //console.log("usernamelist",usernamelist.length);
                     let tokenList = [];
                     for (let i = 0; i < usernamelist.length; i++) {
@@ -275,8 +276,8 @@ function getFileDeletePackets(tpoolconn, paramJson, callback) {
     let query = "select gen_file_ary_delete($1, 'rapnet_ind', $2) del_ary";
     params.push(coIdn);
     params.push(parseInt(timePeriod));
-    //console.log(query);
-    //console.log(params);
+    console.log(query);
+    console.log(params);
     coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
         if (error) {
             outJson["result"] = '';
@@ -328,6 +329,7 @@ function getFileOptionsDtl(tpoolconn, paramJson, callback) {
     let fmt = {};
     let query = "select addl_attr->> 'filename' filename, "+
         "addl_attr->> 'fileExtension' fileExtension, "+
+        "addl_attr->> 'searchattr' searchattr, "+
         "addl_attr->> 'username' username, "+	
         "addl_attr->> 'password' passwords, "+
         "file_idn , key_mapping,nme "+			  
@@ -352,6 +354,7 @@ function getFileOptionsDtl(tpoolconn, paramJson, callback) {
                 map["key_mapping"] = result.rows[0].key_mapping;
                 map["file_idn"] = result.rows[0].file_idn;
                 map["nme"] = result.rows[0].nme;
+                map["searchattr"] = result.rows[0].searchattr || '';
 
                 outJson["result"] = map;
                 outJson["status"] = "SUCCESS";
@@ -366,8 +369,9 @@ function getFileOptionsDtl(tpoolconn, paramJson, callback) {
     })
 }
 
-exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, callback) {
+exports.rapnetReplace =async function (req, res, connection, redirectParam, callback) {
     var formNme = req.body.formNme || '';
+    var timePeriod = req.body.timePeriod || '15';
 
     var coIdn = redirectParam.coIdn;
     let source = redirectParam.source || req.body.source;
@@ -383,7 +387,7 @@ exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, c
         let fileOptionResult = await execGetFileOptionsDtl(methodParam,connection);
         if(fileOptionResult.status == 'SUCCESS'){
             let fileOptionDtl = fileOptionResult.result || {};
-            let filename = 'Rapnet_ReplaceAll_'+dte; //fileOptionDtl["filename"];
+            let filename = 'Rapnet_Replace_'+dte; //fileOptionDtl["filename"];
             let fileExtension = fileOptionDtl["fileExtension"];
             let fileMap = fileOptionDtl["key_mapping"];
             let file_idn = fileOptionDtl["file_idn"];
@@ -397,6 +401,7 @@ exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, c
             methodParam = {};
             methodParam["coIdn"] = coIdn;
             methodParam["nme"] = nme;
+            methodParam["timePeriod"] = timePeriod;
             let fileArrayResult = await execGenFileProcedure(methodParam,connection);
             if(fileArrayResult.status == 'SUCCESS'){
                 let resultView = fileArrayResult["resultView"] || [];
@@ -511,15 +516,17 @@ function execGenFileProcedure(methodParam, tpoolconn) {
 function genFileProcedure(tpoolconn, paramJson, callback) {
     var nme = paramJson.nme || '';
     var coIdn = paramJson.coIdn || '';
+    let timePeriod = paramJson.timePeriod || '';
     let outJson = {};
     let list = [];
 
     if (nme != '') {
         let params = [];
         let fmt = {};
-        let query = "select gen_file_ary_update($1,$2) filearry";
+        let query = "select gen_file_ary_update($1,$2,$3) filearry";
         params.push(coIdn);
         params.push(nme);
+        params.push(parseInt(timePeriod));
         //console.log(query);
         //console.log(params);
         coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
@@ -555,6 +562,204 @@ function genFileProcedure(tpoolconn, paramJson, callback) {
         outJson["result"] = '';
         outJson["status"] = "FAIL";
         outJson["message"] = "Please Verify File Name Parameter";
+        callback(null, outJson);
+    }
+}
+
+exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, callback) {
+    var formNme = req.body.formNme || '';
+
+    var coIdn = redirectParam.coIdn;
+    let source = redirectParam.source || req.body.source;
+    let outJson = {};
+    let methodParam = {};
+    var resultFinal = {};
+    var now = new Date();
+    var dte=dateFormat(now, "ddmmmyyyydh.MM.ss");
+
+    if (formNme != '') {
+        methodParam = {};
+        methodParam["coIdn"] = coIdn;
+        let fileOptionResult = await execGetFileOptionsDtl(methodParam,connection);
+        if(fileOptionResult.status == 'SUCCESS'){
+            let fileOptionDtl = fileOptionResult.result || {};
+            let filename = 'Rapnet_ReplaceAll_'+dte; //fileOptionDtl["filename"];
+            let fileExtension = fileOptionDtl["fileExtension"];
+            let fileMap = fileOptionDtl["key_mapping"];
+            let file_idn = fileOptionDtl["file_idn"];
+            let addl_attr = fileOptionDtl["searchattr"] || '';
+            let usernamelist = fileOptionDtl["username"] || [];
+            usernamelist = JSON.parse(usernamelist);
+            let passwordlist = fileOptionDtl["password"] || [];
+            passwordlist = JSON.parse(passwordlist);
+            let nme = fileOptionDtl["nme"] || '';
+            let filePath  = 'files/'+filename+'.csv';
+
+            methodParam = {};
+            methodParam["fileIdn"]=file_idn;
+            methodParam["filemap"]=fileMap;
+            methodParam["addl_attr"]=addl_attr;
+            let fileArrayResult = await execGenFullFileProcedure(methodParam,connection);
+            if(fileArrayResult.status == 'SUCCESS'){
+                let resultView = fileArrayResult["resultView"] || [];
+                let packetDetails = fileArrayResult["packetDetails"] || [];
+                let resultViewlen = resultView.length;
+
+                let packetDtlList = [];
+                // console.log(packetDetails.length);
+                for(let i=0;i<packetDetails.length;i++){
+                    let pktdtl = packetDetails[i] || [];
+                    let packetDtl = {};
+                    for(let j=0;j<resultViewlen;j++){
+                        let attr = resultView[j];
+                        let attrVal = pktdtl[j] || '';
+                        packetDtl[attr] = attrVal;
+                    }
+                    packetDtlList.push(packetDtl);
+                }
+            
+                console.log("packetDtlList length ",packetDtlList.length);
+                if(packetDtlList.length > 0){
+                    if(fileExtension == 'csv'){
+                        const json2csvParser = new Json2csvParser({ resultView });
+                        const csv = json2csvParser.parse(packetDtlList);
+                        fs.writeFile(filePath, csv,async function(err) {
+                            if (err) {
+                            console.log("error",err)
+                            outJson["result"]=resultFinal;
+                            outJson["status"]="FAIL";
+                            outJson["message"]="CSV Download Fail";
+                            callback(null,outJson);
+                            } else {
+                                    //console.log("usernamelist",usernamelist.length);
+                                    let tokenList = [];
+                                    for (let i = 0; i < usernamelist.length; i++) {
+                                        let username = usernamelist[i];
+                                        let password = passwordlist[i];
+                                        let methodParamLocal = {};
+                                        methodParamLocal["username"] = username;
+                                        methodParamLocal["password"] = password;
+                                        methodParamLocal["service_url"] = "https://technet.rapaport.com/HTTP/Authenticate.aspx";
+                                        let tokenResult = await execGetAuthenticate(methodParamLocal);
+                                        if(tokenResult.status == 'SUCCESS'){
+                                            let token = tokenResult.result || '';
+                                            if(token != '')
+                                                tokenList.push(token);
+                                        }
+                                    }
+                
+
+                                    for (let j = 0; j < tokenList.length; j++) {
+                                        let ticket = tokenList[j];
+                                        let methodParamLocal = {};
+                                        methodParamLocal["filePath"] = filePath;
+                                        methodParamLocal["filename"] = filename+".csv";
+                                        methodParamLocal["service_url"] = "http://technet.rapaport.com/HTTP/Upload/Upload.aspx?Method=file&ReplaceAll=true&ticket="+ticket;
+                                        let pktResult =await execGetUploadFile(methodParamLocal);
+            
+                                    }
+
+                                    methodParam = {};
+                                    methodParam["resultView"]=resultView;
+                                    methodParam["coIdn"] = coIdn;
+                                    methodParam["empidn"]=coIdn;
+                                    methodParam["formatNme"] = 'rapnet_delete';
+                                    methodParam["pktDetails"]=packetDtlList;
+                                    methodParam["buyerYN"]="No";
+                                    methodParam["byridn"]=coIdn;
+                                    methodParam["packetDisplayCnt"]=10;
+                                    methodParam["usernamelist"] = usernamelist;
+                                    //let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
+                                    //console.log("mailResult",mailResult);
+                                    outJson["result"] = resultFinal;
+                                    outJson["status"] = "SUCCESS";
+                                    outJson["message"] = "SUCCESS";
+                                    callback(null, outJson);
+                            }
+                        });
+                    }
+                } else {
+                    outJson["result"] = resultFinal;
+                    outJson["status"] = "FAIL";
+                    outJson["message"] = "Packets not found for deletion";
+                    callback(null, outJson);
+                }  
+            } else {
+                callback(null,fileArrayResult);
+            }                                                        
+        } else {
+            callback(null,fileOptionResult);
+        } 
+    } else if (formNme == '') {
+        outJson["result"] = resultFinal;
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify formNme Can not be blank!";
+        callback(null, outJson);
+    }
+}
+
+function execGenFullFileProcedure(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        genFullFileProcedure(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function genFullFileProcedure(tpoolconn, paramJson, callback) {
+    var fileIdn = paramJson.fileIdn || '';
+    var filemap = paramJson.filemap || '';
+    let addl_attr = paramJson.addl_attr || '';
+    let outJson = {};
+    let list = [];
+
+    if (fileIdn != '') {
+        let params = [];
+        let fmt = {};
+        let query = "select gen_file_ary($1,$2,$3) filearry";
+        params.push(fileIdn);
+        params.push(filemap);
+        params.push(addl_attr);
+
+        console.log(query);
+        console.log(params);
+        coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
+            if (error) {
+                console.log(error);
+                outJson["result"] = '';
+                outJson["status"] = "FAIL";
+                outJson["message"] = "gen_file_ary Fail To Execute Query!";
+                callback(null, outJson);
+            } else {
+                let rowCount = result.rowCount;
+                if (rowCount > 0) {
+                    var len = result.rows.length;
+                    //console.log("file Packet Len"+len);
+                    let resultView = result.rows[0].filearry;
+                    for (let i = 1; i < len; i++) {
+                        let rows = result.rows[i];
+                        let obj  = rows["filearry"];
+                        list.push(obj);
+                    }
+                    outJson["resultView"] = resultView;
+                    outJson["packetDetails"] = list;
+                    outJson["status"] = "SUCCESS";
+                    outJson["message"] = "SUCCESS";
+                    callback(null, outJson);
+                } else {
+                    outJson["status"] = "FAIL";
+                    outJson["message"] = "Sorry no result found";
+                    callback(null, outJson);
+                }
+            }
+        });
+    } else if (fileIdn == '') {
+        outJson["result"] = '';
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify File Idn Parameter";
         callback(null, outJson);
     }
 }

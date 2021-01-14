@@ -28,6 +28,9 @@ exports.load = function(req, res) {
                     if(tokenValidationdata["status"]== 'SUCCESS'){
                             var poolName=tokenValidationdata["pool"] || 'TPOOL';
                             var coIdn = tokenValidationdata["coIdn"] || '';
+                            let prefix = "";
+                            if(poolName.indexOf("GR_")>-1)
+                                prefix = "GR_";
                             if(poolName != ''){
                                 var poolsList= require('qaq-core-db').poolsList;
                                 poolName = poolName.trim();
@@ -46,6 +49,8 @@ exports.load = function(req, res) {
                                                 methodParam["clientKey"]=clientKey;
                                                 methodParam["coIdn"]=coIdn;
                                                 methodParam["source"]=source;
+                                                methodParam["prefix"]=prefix;
+                                                methodParam["poolName"]=poolName;
                                                 rapnetSyncController[''+method](req, res ,connection,methodParam,function(error,result){
                                                     coreDB.doTransRelease(connection);
                                                     res.send(result);
