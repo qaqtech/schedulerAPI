@@ -61,7 +61,7 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
 
                 console.log("packetDtlList length ",packetDtlList.length);
                 //console.log("usernamelist",usernamelist);
-                if(pktIdnLists.length > 0){
+                if(pktIdnList.length > 0){
                     //console.log("usernamelist",usernamelist.length);
                     let tokenList = [];
                     for (let i = 0; i < usernamelist.length; i++) {
@@ -102,6 +102,7 @@ exports.rapnetPacketDelete =async function (req, res, connection, redirectParam,
                     methodParam["byridn"]=coIdn;
                     methodParam["packetDisplayCnt"]=10;
                     methodParam["usernamelist"] = usernamelist;
+                    methodParam["prefix"] = prefix;
                     let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
                     console.log("mailResult",mailResult);
                     outJson["result"] = resultFinal;
@@ -280,6 +281,7 @@ function getFileDeletePackets(tpoolconn, paramJson, callback) {
     console.log(params);
     coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
         if (error) {
+            console.log(error);
             outJson["result"] = '';
             outJson["status"] = "FAIL";
             outJson["message"] = "gen_file_ary_delete Fail To Execute Query!";
