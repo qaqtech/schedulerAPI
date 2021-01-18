@@ -391,6 +391,7 @@ exports.rapnetReplace =async function (req, res, connection, redirectParam, call
             let fileExtension = fileOptionDtl["fileExtension"];
             let fileMap = fileOptionDtl["key_mapping"];
             let file_idn = fileOptionDtl["file_idn"];
+            let addl_attr = fileOptionDtl["searchattr"] || '';
             let usernamelist = fileOptionDtl["username"] || [];
             usernamelist = JSON.parse(usernamelist);
             let passwordlist = fileOptionDtl["password"] || [];
@@ -399,8 +400,9 @@ exports.rapnetReplace =async function (req, res, connection, redirectParam, call
             let filePath  = 'files/'+filename+'.csv';
 
             methodParam = {};
-            methodParam["coIdn"] = coIdn;
-            methodParam["nme"] = nme;
+            methodParam["fileIdn"]=file_idn;
+            methodParam["filemap"]=fileMap;
+            methodParam["addl_attr"]=addl_attr;
             methodParam["timePeriod"] = timePeriod;
             let fileArrayResult = await execGenFileProcedure(methodParam,connection);
             if(fileArrayResult.status == 'SUCCESS'){
@@ -409,7 +411,7 @@ exports.rapnetReplace =async function (req, res, connection, redirectParam, call
                 let resultViewlen = resultView.length;
 
                 let packetDtlList = [];
-                // console.log(packetDetails.length);
+                /// console.log(packetDetails.length);
                 for(let i=0;i<packetDetails.length;i++){
                     let pktdtl = packetDetails[i] || [];
                     let packetDtl = {};
@@ -421,12 +423,13 @@ exports.rapnetReplace =async function (req, res, connection, redirectParam, call
                     packetDtlList.push(packetDtl);
                 }
             
-                console.log("packetDtlList length ",packetDtlList.length);
+                //console.log("packetDtlList length ",packetDtlList.length);
                 if(packetDtlList.length > 0){
                     if(fileExtension == 'csv'){
                         const json2csvParser = new Json2csvParser({ resultView });
                         const csv = json2csvParser.parse(packetDtlList);
-                        fs.writeFile(filePath, csv,async function(err) {
+                        let data = csv.replace(/['"]+/g, '');
+                        fs.writeFile(filePath, data,async function(err) {
                             if (err) {
                             console.log("error",err)
                             outJson["result"]=resultFinal;
@@ -514,23 +517,26 @@ function execGenFileProcedure(methodParam, tpoolconn) {
 }
 
 function genFileProcedure(tpoolconn, paramJson, callback) {
-    var nme = paramJson.nme || '';
-    var coIdn = paramJson.coIdn || '';
+    var fileIdn = paramJson.fileIdn || '';
+    var filemap = paramJson.filemap || '';
+    let addl_attr = paramJson.addl_attr || '';
     let timePeriod = paramJson.timePeriod || '';
     let outJson = {};
     let list = [];
 
-    if (nme != '') {
+    if (fileIdn != '') {
         let params = [];
         let fmt = {};
-        let query = "select gen_file_ary_update($1,$2,$3) filearry";
-        params.push(coIdn);
-        params.push(nme);
+        let query = "select gen_file_ary($1,$2,$3,'upd',$4) filearry";
+        params.push(fileIdn);
+        params.push(filemap);
+        params.push(addl_attr);
         params.push(parseInt(timePeriod));
         //console.log(query);
         //console.log(params);
         coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
             if (error) {
+                console.log(error);
                 outJson["result"] = '';
                 outJson["status"] = "FAIL";
                 outJson["message"] = "gen_file_ary Fail To Execute Query!";
@@ -558,10 +564,10 @@ function genFileProcedure(tpoolconn, paramJson, callback) {
                 }
             }
         });
-    } else if (nme == '') {
+    } else if (fileIdn == '') {
         outJson["result"] = '';
         outJson["status"] = "FAIL";
-        outJson["message"] = "Please Verify File Name Parameter";
+        outJson["message"] = "Please Verify File Idn Parameter";
         callback(null, outJson);
     }
 }
@@ -623,7 +629,9 @@ exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, c
                     if(fileExtension == 'csv'){
                         const json2csvParser = new Json2csvParser({ resultView });
                         const csv = json2csvParser.parse(packetDtlList);
-                        fs.writeFile(filePath, csv,async function(err) {
+                        let data = csv.replace(/['"]+/g, '');
+                        //console.log(data);
+                        fs.writeFile(filePath, data,async function(err) {
                             if (err) {
                             console.log("error",err)
                             outJson["result"]=resultFinal;
@@ -651,6 +659,7 @@ exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, c
 
                                     for (let j = 0; j < tokenList.length; j++) {
                                         let ticket = tokenList[j];
+                                        //console.log("ticket",ticket)
                                         let methodParamLocal = {};
                                         methodParamLocal["filePath"] = filePath;
                                         methodParamLocal["filename"] = filename+".csv";
@@ -863,7 +872,7 @@ function getUploadFile(paramJson, callback){
         //console.log(response.message );
         console.log(body);
         if (!error && response.statusCode == 200) {
-            let info = JSON.parse(body);
+            let info = body;
             console.log(info);
             outJson["result"] = info;
             outJson["message"]="SUCCESS";

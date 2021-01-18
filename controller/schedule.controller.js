@@ -5464,7 +5464,6 @@ function execUpdateInterval(methodParam, tpoolconn) {
             resolve(result);
         });
     });
-
 }
 
 function updateInterval(tpoolconn, paramJson, callback) {
