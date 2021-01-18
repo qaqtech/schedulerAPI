@@ -7,5 +7,6 @@ router.post('/load', redirect.load);
 router.post('/scheduleApi', schedule.scheduleApi);
 router.post('/scheduleLoad', schedule.scheduleLoad);
 router.post('/webservice', schedule.load);
+router.post('/rapsync', redirect.load);
 
 module.exports = router;
