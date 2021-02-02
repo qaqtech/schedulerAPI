@@ -7,6 +7,7 @@ const fs = require('fs');
 var dateFormat = require('dateformat');
 let async = require("async");
 const soapRequest = require('easy-soap-request');
+const createCsvWriter = require('csv-writer').createArrayCsvWriter;
 
 exports.rapnetPacketDelete =async function (req, res, connection, redirectParam, callback) {
     var formNme = req.body.formNme || '';
@@ -412,86 +413,59 @@ exports.rapnetReplace =async function (req, res, connection, redirectParam, call
                 let packetDetails = fileArrayResult["packetDetails"] || [];
                 let resultViewlen = resultView.length;
 
-                let packetDtlList = [];
-                /// console.log(packetDetails.length);
-                for(let i=0;i<packetDetails.length;i++){
-                    let pktdtl = packetDetails[i] || [];
-                    let packetDtl = {};
-                    for(let j=0;j<resultViewlen;j++){
-                        let attr = resultView[j];
-                        let attrVal = pktdtl[j] || '';
-                        packetDtl[attr] = attrVal;
-                    }
-                    packetDtlList.push(packetDtl);
-                }
-            
-                //console.log("packetDtlList length ",packetDtlList.length);
-                if(packetDtlList.length > 0){
-                    if(fileExtension == 'csv'){
-                        const json2csvParser = new Json2csvParser({ resultView });
-                        const csv = json2csvParser.parse(packetDtlList);
-                        let data = csv.replace(/['"]+/g, '');
-                        fs.writeFile(filePath, data,async function(err) {
-                            if (err) {
-                            console.log("error",err)
-                            outJson["result"]=resultFinal;
-                            outJson["status"]="FAIL";
-                            outJson["message"]="CSV Download Fail";
-                            callback(null,outJson);
-                            } else {
-                                    //console.log("usernamelist",usernamelist.length);
-                                    let tokenList = [];
-                                    for (let i = 0; i < usernamelist.length; i++) {
-                                        let username = usernamelist[i];
-                                        let password = passwordlist[i];
-                                        let methodParamLocal = {};
-                                        methodParamLocal["username"] = username;
-                                        methodParamLocal["password"] = password;
-                                        methodParamLocal["service_url"] = "https://technet.rapaport.com/HTTP/Authenticate.aspx";
-                                        let tokenResult = await execGetAuthenticate(methodParamLocal);
-                                        if(tokenResult.status == 'SUCCESS'){
-                                            let token = tokenResult.result || '';
-                                            if(token != '')
-                                                tokenList.push(token);
-                                        }
-                                    }
+                const csvWriter = createCsvWriter({
+                    header: resultView,
+                    path: filePath
+                });
                 
-
-                                    for (let j = 0; j < tokenList.length; j++) {
-                                        let ticket = tokenList[j];
-                                        let methodParamLocal = {};
-                                        methodParamLocal["filePath"] = filePath;
-                                        methodParamLocal["filename"] = filename+".csv";
-                                        methodParamLocal["service_url"] = "http://technet.rapaport.com/HTTP/Upload/Upload.aspx?Method=file&ReplaceAll=false&ticket="+ticket;
-                                        let pktResult =await execGetUploadFile(methodParamLocal);
-            
-                                    }
-
-                                    methodParam = {};
-                                    methodParam["resultView"]=resultView;
-                                    methodParam["coIdn"] = coIdn;
-                                    methodParam["empidn"]=coIdn;
-                                    methodParam["formatNme"] = 'rapnet_delete';
-                                    methodParam["pktDetails"]=packetDtlList;
-                                    methodParam["buyerYN"]="No";
-                                    methodParam["byridn"]=coIdn;
-                                    methodParam["packetDisplayCnt"]=10;
-                                    methodParam["usernamelist"] = usernamelist;
-                                    //let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
-                                    //console.log("mailResult",mailResult);
-                                    outJson["result"] = resultFinal;
-                                    outJson["status"] = "SUCCESS";
-                                    outJson["message"] = "SUCCESS";
-                                    callback(null, outJson);
-                            }
-                        });
+                const records = packetDetails;
+                
+                await csvWriter.writeRecords(records);   // returns a promise
+                console.log('...Done');
+                //console.log("usernamelist",usernamelist.length);
+                let tokenList = [];
+                for (let i = 0; i < usernamelist.length; i++) {
+                    let username = usernamelist[i];
+                    let password = passwordlist[i];
+                    let methodParamLocal = {};
+                    methodParamLocal["username"] = username;
+                    methodParamLocal["password"] = password;
+                    methodParamLocal["service_url"] = "https://technet.rapaport.com/HTTP/Authenticate.aspx";
+                    let tokenResult = await execGetAuthenticate(methodParamLocal);
+                    if(tokenResult.status == 'SUCCESS'){
+                        let token = tokenResult.result || '';
+                        if(token != '')
+                            tokenList.push(token);
                     }
-                } else {
-                    outJson["result"] = resultFinal;
-                    outJson["status"] = "FAIL";
-                    outJson["message"] = "Packets not found for deletion";
-                    callback(null, outJson);
-                }  
+                }
+
+
+                for (let j = 0; j < tokenList.length; j++) {
+                    let ticket = tokenList[j];
+                    let methodParamLocal = {};
+                    methodParamLocal["filePath"] = filePath;
+                    methodParamLocal["filename"] = filename+".csv";
+                    methodParamLocal["service_url"] = "http://technet.rapaport.com/HTTP/Upload/Upload.aspx?Method=file&ReplaceAll=false&ticket="+ticket;
+                    let pktResult =await execGetUploadFile(methodParamLocal);
+
+                }
+
+                methodParam = {};
+                methodParam["resultView"]=resultView;
+                methodParam["coIdn"] = coIdn;
+                methodParam["empidn"]=coIdn;
+                methodParam["formatNme"] = 'rapnet_delete';
+                //methodParam["pktDetails"]=packetDtlList;
+                methodParam["buyerYN"]="No";
+                methodParam["byridn"]=coIdn;
+                methodParam["packetDisplayCnt"]=10;
+                methodParam["usernamelist"] = usernamelist;
+                //let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
+                //console.log("mailResult",mailResult);
+                outJson["result"] = resultFinal;
+                outJson["status"] = "SUCCESS";
+                outJson["message"] = "SUCCESS";
+                callback(null, outJson); 
             } else {
                 callback(null,fileArrayResult);
             }                                                        
@@ -574,7 +548,7 @@ function genFileProcedure(tpoolconn, paramJson, callback) {
     }
 }
 
-exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, callback) {
+exports.rapnetReplaceAllOld =async function (req, res, connection, redirectParam, callback) {
     var formNme = req.body.formNme || '';
 
     var coIdn = redirectParam.coIdn;
@@ -631,8 +605,9 @@ exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, c
                     if(fileExtension == 'csv'){
                         const json2csvParser = new Json2csvParser({ resultView });
                         const csv = json2csvParser.parse(packetDtlList);
+                        console.log("before",csv);
                         let data = csv.replace(/['"]+/g, '');
-                        //console.log(data);
+                        console.log("after",data);
                         fs.writeFile(filePath, data,async function(err) {
                             if (err) {
                             console.log("error",err)
@@ -735,8 +710,8 @@ function genFullFileProcedure(tpoolconn, paramJson, callback) {
         params.push(filemap);
         params.push(addl_attr);
 
-        console.log(query);
-        console.log(params);
+        //console.log(query);
+        //console.log(params);
         coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
             if (error) {
                 console.log(error);
@@ -886,4 +861,111 @@ function getUploadFile(paramJson, callback){
             callback(null,outJson);   
         }
     }); 
+}
+
+exports.rapnetReplaceAll =async function (req, res, connection, redirectParam, callback) {
+    var formNme = req.body.formNme || '';
+
+    var coIdn = redirectParam.coIdn;
+    let source = redirectParam.source || req.body.source;
+    let outJson = {};
+    let methodParam = {};
+    var resultFinal = {};
+    var now = new Date();
+    var dte=dateFormat(now, "ddmmmyyyydh.MM.ss");
+
+    if (formNme != '') {
+        methodParam = {};
+        methodParam["coIdn"] = coIdn;
+        let fileOptionResult = await execGetFileOptionsDtl(methodParam,connection);
+        if(fileOptionResult.status == 'SUCCESS'){
+            let fileOptionDtl = fileOptionResult.result || {};
+            let filename = 'Rapnet_ReplaceAll_'+dte; //fileOptionDtl["filename"];
+            let fileExtension = fileOptionDtl["fileExtension"];
+            let fileMap = fileOptionDtl["key_mapping"];
+            let file_idn = fileOptionDtl["file_idn"];
+            let addl_attr = fileOptionDtl["searchattr"] || '';
+            let usernamelist = fileOptionDtl["username"] || [];
+            usernamelist = JSON.parse(usernamelist);
+            let passwordlist = fileOptionDtl["password"] || [];
+            passwordlist = JSON.parse(passwordlist);
+            let nme = fileOptionDtl["nme"] || '';
+            let filePath  = 'files/'+filename+'.csv';
+
+            methodParam = {};
+            methodParam["fileIdn"]=file_idn;
+            methodParam["filemap"]=fileMap;
+            methodParam["addl_attr"]=addl_attr;
+            let fileArrayResult = await execGenFullFileProcedure(methodParam,connection);
+            if(fileArrayResult.status == 'SUCCESS'){
+                let resultView = fileArrayResult["resultView"] || [];
+                let packetDetails = fileArrayResult["packetDetails"] || [];
+                let resultViewlen = resultView.length;
+
+                const csvWriter = createCsvWriter({
+                    header: resultView,
+                    path: filePath
+                });
+                
+                const records = packetDetails;
+                
+                await csvWriter.writeRecords(records);   // returns a promise
+                console.log('...Done');
+                    //console.log("usernamelist",usernamelist.length);
+                let tokenList = [];
+                for (let i = 0; i < usernamelist.length; i++) {
+                    let username = usernamelist[i];
+                    let password = passwordlist[i];
+                    let methodParamLocal = {};
+                    methodParamLocal["username"] = username;
+                    methodParamLocal["password"] = password;
+                    methodParamLocal["service_url"] = "https://technet.rapaport.com/HTTP/Authenticate.aspx";
+                    let tokenResult = await execGetAuthenticate(methodParamLocal);
+                    if(tokenResult.status == 'SUCCESS'){
+                        let token = tokenResult.result || '';
+                        if(token != '')
+                            tokenList.push(token);
+                    }
+                }
+
+
+                for (let j = 0; j < tokenList.length; j++) {
+                    let ticket = tokenList[j];
+                    //console.log("ticket",ticket)
+                    let methodParamLocal = {};
+                    methodParamLocal["filePath"] = filePath;
+                    methodParamLocal["filename"] = filename+".csv";
+                    methodParamLocal["service_url"] = "http://technet.rapaport.com/HTTP/Upload/Upload.aspx?Method=file&ReplaceAll=true&ticket="+ticket;
+                    let pktResult =await execGetUploadFile(methodParamLocal);
+
+                }
+
+                methodParam = {};
+                methodParam["resultView"]=resultView;
+                methodParam["coIdn"] = coIdn;
+                methodParam["empidn"]=coIdn;
+                methodParam["formatNme"] = 'rapnet_delete';
+                //methodParam["pktDetails"]=packetDtlList;
+                methodParam["buyerYN"]="No";
+                methodParam["byridn"]=coIdn;
+                methodParam["packetDisplayCnt"]=10;
+                methodParam["usernamelist"] = usernamelist;
+                //let mailResult = await coreUtil.sendRapnetDeleteMail(methodParam,connection);
+                //console.log("mailResult",mailResult);
+                outJson["result"] = resultFinal;
+                outJson["status"] = "SUCCESS";
+                outJson["message"] = "SUCCESS";
+                callback(null, outJson);
+            } else {
+                callback(null,fileArrayResult);
+            }                                                        
+        } else {
+            callback(null,fileOptionResult);
+        } 
+    } else if (formNme == '') {
+        outJson["result"] = resultFinal;
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify formNme Can not be blank!";
+        callback(null, outJson);
+    }
 }
