@@ -2461,7 +2461,7 @@ async function getSoldDtl( tpoolconn, redirectParam, callback) {
         "where ts.transaction_sales_idn = tds.transaction_sales_idn and tds.stock_idn = sm.stock_idn \n"+
         "and ts.process_idn = sp.process_idn and sm.co_idn = sp.co_idn and ts.co_idn=sp.co_idn \n"+
         "and sm.co_idn=$1 and sm.stock_type='NR' and sp.nme in ('lsale','sale','branch_sale') \n"+
-        " and tds.status in ('CF','IS') and sm.attr->>'special' != '60' \n"+ // 22Jan 2021 told by purav sir to remove stone of attr-special = private value
+        " and tds.status in ('CF','IS') and coalesce(sm.attr ->> 'special', '10') != '60' \n"+ // 22Jan 2021 told by purav sir to remove stone of attr-special = private value
         " and cast(ts.trns_ts as date) between to_date('"+fromDte+"', 'dd-mm-yyyy') and  to_date('"+toDte+"', 'dd-mm-yyyy') ) \n"+
         "select shape, sum(qty) qty, trunc(sum(crtwt),2) crtwt, trunc(sum(salRte*crtwt)/1000,2) vlu   from ana \n"+
         "group by shape order by shape desc ";
@@ -2504,7 +2504,7 @@ async function getSoldDtl( tpoolconn, redirectParam, callback) {
                     "from transaction_sales ts,transaction_d_sales tds,stock_m sm,stock_process sp \n"+
                     "where ts.transaction_sales_idn = tds.transaction_sales_idn and tds.stock_idn = sm.stock_idn \n"+
                     "and ts.process_idn = sp.process_idn and sm.co_idn = sp.co_idn and ts.co_idn=sp.co_idn \n"+
-                    "and sm.co_idn=$1 and sm.stock_type in ('MIX','SMX') and sm.attr->>'special' != '60' and tds.status in ('CF','IS') and sp.nme in ('mix_sale','mix_branch_sale','mix_lsale') \n"+
+                    "and sm.co_idn=$1 and sm.stock_type in ('MIX','SMX') and coalesce(sm.attr ->> 'special', '10') != '60' and tds.status in ('CF','IS') and sp.nme in ('mix_sale','mix_branch_sale','mix_lsale') \n"+
                     "and cast(ts.trns_ts as date) between to_date('"+fromDte+"', 'dd-mm-yyyy') and  to_date('"+toDte+"', 'dd-mm-yyyy') ";
 
                 let params = [];
@@ -2582,7 +2582,7 @@ async function getDeliveryDtl( tpoolconn, redirectParam, callback) {
         "where ts.transaction_sales_idn = tds.transaction_sales_idn and tds.stock_idn = sm.stock_idn \n"+
         "and ts.process_idn = sp.process_idn and sm.co_idn = sp.co_idn and ts.co_idn=sp.co_idn \n"+
         "and sm.co_idn=$1 and sm.stock_type='NR' and sp.nme in ('delivery','branch_delivery')  \n"+
-        " and tds.status in ('CF','IS') and sm.attr->>'special' != '60' \n"+
+        " and tds.status in ('CF','IS') and coalesce(sm.attr ->> 'special', '10') != '60' \n"+
         " and cast(ts.trns_ts as date) between to_date('"+fromDte+"', 'dd-mm-yyyy') and  to_date('"+toDte+"', 'dd-mm-yyyy') ) \n"+
         "select shape, sum(qty) qty, trunc(sum(crtwt),2) crtwt,  trunc(sum(salRte*crtwt)/1000,2) vlu   from ana \n"+
         "group by shape order by shape desc ";
@@ -2624,7 +2624,7 @@ async function getDeliveryDtl( tpoolconn, redirectParam, callback) {
                 "from transaction_sales ts,transaction_d_sales tds,stock_m sm,stock_process sp \n"+
                 "where ts.transaction_sales_idn = tds.transaction_sales_idn and tds.stock_idn = sm.stock_idn \n"+
                 "and ts.process_idn = sp.process_idn and sm.co_idn = sp.co_idn and ts.co_idn=sp.co_idn \n"+
-                "and sm.co_idn=$1 and sm.stock_type in ('MIX','SMX') and sm.attr->>'special' != '60' and tds.status in ('CF','IS') and sp.nme in ('mix_delivery','mix_branch_delivery') \n"+
+                "and sm.co_idn=$1 and sm.stock_type in ('MIX','SMX') and coalesce(sm.attr ->> 'special', '10') != '60' and tds.status in ('CF','IS') and sp.nme in ('mix_delivery','mix_branch_delivery') \n"+
                 "and cast(ts.trns_ts as date) between to_date('"+fromDte+"', 'dd-mm-yyyy') and  to_date('"+toDte+"', 'dd-mm-yyyy') ";
 
                 let params = [];
@@ -2699,7 +2699,7 @@ async function getSalePersonDtl( tpoolconn, redirectParam, callback) {
         "where ts.transaction_sales_idn = tds.transaction_sales_idn and tds.stock_idn = sm.stock_idn \n"+
         "and ts.process_idn = sp.process_idn and sm.co_idn = sp.co_idn and ts.co_idn=sp.co_idn \n"+
         "and sm.co_idn=$1 and sm.stock_type='NR' and sp.nme in ('lsale','sale','branch_sale') \n"+
-        " and tds.status in ('CF','IS') and sm.attr->>'special' != '60' \n"+
+        " and tds.status in ('CF','IS') and coalesce(sm.attr ->> 'special', '10') != '60' \n"+
         " and cast(ts.trns_ts as date) between to_date('"+fromDte+"', 'dd-mm-yyyy') and  to_date('"+toDte+"', 'dd-mm-yyyy')  \n"+
         "group by ts.emp_idn order by vlu desc ";
 
@@ -2771,7 +2771,7 @@ async function getMixSaleDtl( tpoolconn, redirectParam, callback) {
         "from transaction_sales ts,transaction_d_sales tds,stock_m sm,stock_process sp \n"+
         "where ts.transaction_sales_idn = tds.transaction_sales_idn and tds.stock_idn = sm.stock_idn \n"+
         "and ts.process_idn = sp.process_idn and sm.co_idn = sp.co_idn and ts.co_idn=sp.co_idn \n"+
-        "and sm.co_idn=$1 and sm.stock_type in ('MIX','SMX') and sm.attr->>'special' != '60' and tds.status in ('CF','IS') and sp.nme in ('mix_sale','mix_branch_sale','mix_lsale') \n"+
+        "and sm.co_idn=$1 and sm.stock_type in ('MIX','SMX') and coalesce(sm.attr ->> 'special', '10') != '60' and tds.status in ('CF','IS') and sp.nme in ('mix_sale','mix_branch_sale','mix_lsale') \n"+
         "and cast(ts.trns_ts as date) between to_date('"+fromDte+"', 'dd-mm-yyyy') and  to_date('"+toDte+"', 'dd-mm-yyyy') ";
 
     let params = [];
