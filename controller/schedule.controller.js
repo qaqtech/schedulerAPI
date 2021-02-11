@@ -301,6 +301,7 @@ function execMailSendTransSale(paramJson,callback){
                 methodParamlocal["formNme"] = formNme;
                 methodParamlocal["fileName"] = fileName;
                 methodParamlocal["downloadExcel"] = downloadExcel;
+                methodParamlocal["userEmail"] = "Y";
                 let mailDetails = await coreUtil.sendTransMail(methodParamlocal,connection);
                 coreDB.doTransRelease(connection);
                 outJson["result"]=mailDetails.result || {};
@@ -540,6 +541,7 @@ function execMailSendRejection(paramJson,callback){
                 methodParams["formatNme"]=formatNme;
                 methodParams["buyerYN"]=buyerYN;
                 methodParams["logUsr"]=logUsr;
+                methodParams["userEmail"] = 'Y';
                 let mailDetails = await coreUtil.sendRejectionMail(methodParams,connection);
                 coreDB.doTransRelease(connection);
                 outJson["result"]=mailDetails.result || {};
@@ -4723,7 +4725,7 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                 } //else if(portal != 'bn') {
                   //  filename = filename+"_"+dte;
                // }
-                   
+                 
                 paramJson={};    
                 paramJson["fileIdn"]=fileIdn;
                 paramJson["filemap"]=key_mapping;
@@ -4776,21 +4778,32 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                         const json2csvParser = new Json2csvParser({ resultView });
                         const csv = json2csvParser.parse(packetDtlList);
                         //console.log(csv)
-                        fs.writeFile('files/'+filename, csv,async function(err) {
-                        if (err) {
-                                console.log("error",err)
-                                outJson["result"]=resultFinal;
-                                outJson["status"]="FAIL";
-                                outJson["message"]="CSV Download Fail";
-                                callback(null,outJson);
-                            }
-                            resultFinal["filename"] = filename;
-                            resultFinal["filePath"] = filePath;
-                            outJson["result"]=resultFinal;
-                            outJson["status"]="SUCCESS";
-                            outJson["message"]="SUCCESS";
-                            callback(null,outJson);
-                        });
+                        //now = new Date();
+                        //var dtes=dateFormat(now, "ddmmmyyyy_hMMss");
+                        //console.log("start",dtes);
+                        let writerStream = fs.createWriteStream('files/'+filename);
+                        writerStream.write(csv,'UTF8'); //writeFile
+                        writerStream.end();
+                        //fs.writeFile('files/'+filename, csv,async function(err) {
+                        //    if (err) {
+                        //            console.log("error",err)
+                        //            outJson["result"]=resultFinal;
+                        //            outJson["status"]="FAIL";
+                        //            outJson["message"]="CSV Download Fail";
+                        //            callback(null,outJson);
+                        //        }
+                        //console.log("end");
+                        //now = new Date();
+                        //var dtef=dateFormat(now, "ddmmmyyyy_hMMss");
+                        //console.log("end file",dtef);
+
+                        resultFinal["filename"] = filename;
+                        resultFinal["filePath"] = filePath;
+                        outJson["result"]=resultFinal;
+                        outJson["status"]="SUCCESS";
+                        outJson["message"]="SUCCESS";
+                        callback(null,outJson);
+                    //})
                     } else {
                         console.log("packetLength",packetDtlList.length)
                         resultFinal["packetDetails"] = packetDtlList;
