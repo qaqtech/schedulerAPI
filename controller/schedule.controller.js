@@ -4706,6 +4706,7 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
         let fileOptionResult = await execGetFileOptionsDtl(paramJson,tpoolconn);
         if(fileOptionResult.status == 'SUCCESS'){
             let fileOptionDtl = fileOptionResult.result || {};
+            let fileoptionname = fileOptionDtl.fileoptionname || '';
             let filename = fileOptionDtl["filename"] || '';
             let fileExtension = fileOptionDtl["fileExtension"] || 'csv';
             let key_mapping = fileOptionDtl["key_mapping"];
@@ -4730,6 +4731,8 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                 paramJson["fileIdn"]=fileIdn;
                 paramJson["filemap"]=key_mapping;
                 paramJson["addl_attr"]=addl_attr;
+                paramJson["fileoptionname"] = fileoptionname;
+                paramJson["coIdn"]=coIdn;
                 let fileArrayResult = await execGenFileProcedure(paramJson,tpoolconn);
                 //fileArrayResult["status"] = "SUCCESS";
                 if(fileArrayResult.status == 'SUCCESS'){
@@ -4749,7 +4752,7 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                         }
                         packetDtlList.push(packetDtl);
                     }
-
+                    
                     //console.log("fileExtension",fileExtension)
                     //console.log("filename",filename)
                     let filePath = "";
@@ -4876,6 +4879,9 @@ function genFileProcedure(tpoolconn, paramJson, callback) {
     var fileIdn = paramJson.fileIdn || '';
     var filemap = paramJson.filemap || '';
     let addl_attr = paramJson.addl_attr || '';
+    let fileoptionname = paramJson.fileoptionname || '';
+    let coIdn = paramJson.coIdn || '';
+
     let outJson = {};
     let list = [];
 
@@ -4889,7 +4895,7 @@ function genFileProcedure(tpoolconn, paramJson, callback) {
 
         //console.log(query);
         //console.log(params);
-        coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
+        coreDB.executeTransSql(tpoolconn, query, params, fmt,async function (error, result) {
             if (error) {
                 console.log(error);
                 outJson["result"] = '';
@@ -4902,16 +4908,47 @@ function genFileProcedure(tpoolconn, paramJson, callback) {
                     var len = result.rows.length;
                     //console.log("file Packet Len"+len);
                     let resultView = result.rows[0].filearry;
+                    //console.log("resultView"+resultView);
                     for (let i = 1; i < len; i++) {
                         let rows = result.rows[i];
                         let obj  = rows["filearry"];
                         list.push(obj);
                     }
-                    outJson["resultView"] = resultView;
-                    outJson["packetDetails"] = list;
-                    outJson["status"] = "SUCCESS";
-                    outJson["message"] = "SUCCESS";
-                    callback(null, outJson);
+
+                    let tpData = 'N';
+                    if(fileoptionname == 'r2net'){
+                        let methodParam = {};
+                        methodParam["coIdn"] = coIdn;
+                        let applData = await execGetApplDtl(methodParam,tpoolconn);
+                        if(applData.status == 'SUCCESS'){
+                            tpData = applData["result"] || 'N';
+                        }
+                    }
+                    //console.log("tp",tpData);
+                    if(tpData == 'Y'){
+                        let packetList = [];
+                        let methodParam = {};
+                        methodParam["fileNme"] = fileoptionname;
+                        methodParam["packetList"] = list;
+                        let tpDataResult = await execGetTPFileOptionsDtl(methodParam,tpoolconn);
+                        if(tpDataResult.status == 'SUCCESS'){
+                            packetList = tpDataResult["packetDetails"];
+                            outJson["packetDetails"] = packetList;
+                        } else {
+                            outJson["packetDetails"] = list;
+                        }
+
+                        outJson["resultView"] = resultView;
+                        outJson["status"] = "SUCCESS";
+                        outJson["message"] = "SUCCESS";
+                        callback(null, outJson);
+                    } else {
+                        outJson["resultView"] = resultView;
+                        outJson["packetDetails"] = list;
+                        outJson["status"] = "SUCCESS";
+                        outJson["message"] = "SUCCESS";
+                        callback(null, outJson);
+                    } 
                 } else {
                     outJson["status"] = "FAIL";
                     outJson["message"] = "Sorry no result found";
@@ -4923,6 +4960,109 @@ function genFileProcedure(tpoolconn, paramJson, callback) {
         outJson["result"] = '';
         outJson["status"] = "FAIL";
         outJson["message"] = "Please Verify File Idn Parameter";
+        callback(null, outJson);
+    }
+}
+
+function execGetTPFileOptionsDtl(methodParam, tpoolconn) {
+    return new Promise(function (resolve, reject) {
+        getTPFileOptionsDtl(tpoolconn, methodParam, function (error, result) {
+            if (error) {
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+
+}
+
+function getTPFileOptionsDtl(tpoolconn, paramJson, callback) {
+    let fileNme = paramJson.fileNme || '';
+    let packetList = paramJson.packetList || [];
+    let outJson = {};
+    let map = {};
+
+    if (fileNme != '') {
+        let params = [];
+        let fmt = {};
+        let query = "select fo.key_mapping ,fo.file_idn, fo.addl_attr->> 'searchattr' searchattr \n"+
+            "from file_options fo,appl_client ac where fo.co_idn = ac.co_idn \n"+
+            " and ac.account_ds = 'TP' \n"+
+            "and fo.stt = 1 and ac.stt = 1 ";
+
+        let cnt =0;
+        if(fileNme != ''){
+            cnt++;
+            query +=" and fo.nme=$"+cnt;
+            params.push(fileNme);
+        }
+        //console.log(query);
+        //console.log(params);
+        coreDB.executeTransSql(tpoolconn, query, params, fmt,async function (error, result) {
+            if (error) {
+                console.log(error);
+                outJson["result"] = '';
+                outJson["status"] = "FAIL";
+                outJson["message"] = "getTPFileOptionsDtl Fail To Execute Query!";
+                callback(null, outJson);
+            } else {
+                var len = result.rows.length;
+                if (len > 0) {
+                    let filemap = result.rows[0].key_mapping;
+                    let fileIdn = result.rows[0].file_idn;
+                    let addl_attr = result.rows[0].searchattr || '';
+
+                    params = [];
+                    fmt = {};
+                    query = "select gen_file_ary($1,$2,$3) filearry";
+                    params.push(fileIdn);
+                    params.push(filemap);
+                    params.push(addl_attr);
+
+                    //console.log(query);
+                    //console.log(params);
+                    coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
+                        if (error) {
+                            console.log(error);
+                            outJson["result"] = '';
+                            outJson["status"] = "FAIL";
+                            outJson["message"] = "gen_file_ary Fail To Execute Query!";
+                            callback(null, outJson);
+                        } else {
+                            let rowCount = result.rowCount;
+                            if (rowCount > 0) {
+                                var len = result.rows.length;
+                                console.log("file Packet Len"+len);
+                                let resultView = result.rows[0].filearry;
+                                //console.log("resultView"+resultView);
+                                for (let i = 1; i < len; i++) {
+                                    let rows = result.rows[i];
+                                    let obj  = rows["filearry"];
+                                    packetList.push(obj);
+                                }
+                                outJson["resultView"] = resultView;
+                                outJson["packetDetails"] = packetList;
+                                outJson["status"] = "SUCCESS";
+                                outJson["message"] = "SUCCESS";
+                                callback(null, outJson);
+                            } else {
+                                outJson["status"] = "FAIL";
+                                outJson["message"] = "Sorry no result found";
+                                callback(null, outJson);
+                            }
+                        }
+                    });
+                } else {
+                    outJson["status"] = "FAIL";
+                    outJson["message"] = "Sorry no result found";
+                    callback(null, outJson);
+                }
+            }
+        });
+    } else if (fileNme == '') {
+        outJson["result"] = '';
+        outJson["status"] = "FAIL";
+        outJson["message"] = "Please Verify FileName Parameter";
         callback(null, outJson);
     }
 }
@@ -5071,7 +5211,7 @@ function getFileOptionsDtl(tpoolconn, paramJson, callback) {
     if (fileIdn != '' || fileNme != '') {
         let params = [];
         let fmt = {};
-        let query = "select addl_attr->> 'filename' filename, "+
+        let query = "select nme,addl_attr->> 'filename' filename, "+
             "addl_attr->> 'fileExtension' fileExtension, "+
             "addl_attr->> 'searchattr' searchattr, "+
             "addl_attr->> 'username' username, "+
@@ -5094,7 +5234,7 @@ function getFileOptionsDtl(tpoolconn, paramJson, callback) {
         }
         //console.log(query);
         //console.log(params);
-        coreDB.executeTransSql(tpoolconn, query, params, fmt, function (error, result) {
+        coreDB.executeTransSql(tpoolconn, query, params, fmt,async function (error, result) {
             if (error) {
                 console.log(error);
                 outJson["result"] = '';
@@ -5104,6 +5244,8 @@ function getFileOptionsDtl(tpoolconn, paramJson, callback) {
             } else {
                 var len = result.rows.length;
                 if (len > 0) {
+                    let nme = result.rows[0].nme;
+                    map["fileoptionname"] =  nme;
                     map["filename"] = result.rows[0].filename;
                     map["fileExtension"] = result.rows[0].fileextension;
                     map["key_mapping"] = result.rows[0].key_mapping;
@@ -5130,6 +5272,52 @@ function getFileOptionsDtl(tpoolconn, paramJson, callback) {
         outJson["message"] = "Please Verify FileIdn/FileName Parameter";
         callback(null, outJson);
     }
+}
+
+function execGetApplDtl(methodParam,tpoolconn){
+    return new Promise(function(resolve,reject) {
+        getApplDtl(tpoolconn,methodParam, function (error, result) {
+            if(error){  
+                reject(error);
+            }
+            resolve(result);
+        });
+    });
+}
+
+function getApplDtl(connection,paramJson,callback){
+    let coIdn = paramJson.coIdn;
+    let outJson = {};
+
+    let params = [];
+    params.push(coIdn);
+    let fmt = {};
+    let query = "select appl_idn from appl_client where co_idn=$1 and account_ds like 'GD%' \n";
+    
+    //console.log(query);
+    //console.log(params)
+    coreDB.executeTransSql(connection,query,params,fmt,function(error,result){
+        if(error){
+            console.log(error);
+            outJson["result"]='';
+            outJson["status"]="FAIL";
+            outJson["message"]="getApplDtl Fail To Execute Query!"+error;
+            callback(null,outJson);
+        }else{
+            var len = result.rows.length;
+            //console.log("len",len)
+            if(len>0){
+                outJson["status"]="SUCCESS";
+                outJson["message"]="SUCCESS";
+                outJson["result"]='Y';
+                callback(null,outJson);
+            } else {
+                outJson["status"]="FAIL";
+                outJson["message"]="Sorry no result found";
+                callback(null,outJson);
+            }
+        }
+    })                 
 }
 
 function execSaveExcel(methodParam, connection) {
