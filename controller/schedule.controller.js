@@ -5587,15 +5587,16 @@ function getMarketDUpdateStatus(paramJson, callback){
         //console.log("statusCode"+response.statusCode );
         //console.log(response );
         //console.log(response.message );
-        let info = JSON.parse(body);
-        console.log(info);
         if (!error && response.statusCode == 200) {
+            let info = JSON.parse(body);
+            console.log(info);
+
             outJson["result"] = info;
             outJson["message"]="SUCCESS";
             outJson["status"]="SUCCESS";
             callback(null,outJson);        
        }else{
-            outJson["result"] = info;
+            outJson["result"] = {};
             outJson["message"]="Issue in API";
             outJson["status"]="FAIL";
             callback(null,outJson);   
