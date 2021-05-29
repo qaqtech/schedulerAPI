@@ -765,7 +765,7 @@ async function getMFGDetails(paramJson,callback) {
                     "and b.trns_srno=(select max(a.trns_srno) from pkt_fnlpln_t a \n"+
                     "where a.pckt_id=b.pckt_id \n"+
                     "and a.pln_typ in ('MF','F') )) \n"+
-                    "where c.actv_flg='Y' \n"+
+                    "where c.actv_flg='Y' and c.stg_flg not like 'RE%' \n"+
                     ")  \n"+
                     "select  a.*,case when a.pln_sr=1 then a.rgh_crts else 0 end rgh_crts_nw,  \n"+
                     "(case when a.attr_id is not null then (select json_object_agg(lower(t.mprp), t.srt) from pkt_atrdtl_t t \n"+ 
@@ -1484,33 +1484,39 @@ function getAndUpdatePrice(paramJson, connection, callback){
         if (!error && response.statusCode == 200) {
             console.log("attr_id",attr_id);
             console.log("body"+body); // Print the shortened url.
-            let info = JSON.parse(body);
-            
-            carateRate = info.ppc || ''; 
-            if(carateRate != ''){
-                methodParam = {};
-                methodParam["carateRate"] = carateRate;
-                methodParam["logUsr"] = logUsr;
-                methodParam["coIdn"] = coIdn;
-                methodParam["attr_id"] = attr_id;
-                methodParam["packetData"] = packetData;
-                updatePrice(methodParam, connection,  function (error, priceDetails) {
-                    if (error) {
-                        console.log(error);
-                        outJson["result"] = '';
-                        outJson["status"] = "FAIL";
-                        outJson["message"] = "Fail To Update Price in stock master!";
-                        callback(null, outJson);
-                    } else {
-                        callback(null, priceDetails);
-                    }
-                })
-            } else{
-                console.log(error);
-                outJson["message"]=error;
-                outJson["status"]="FAIL";
-                callback(null,outJson);   
-            }         
+            try {
+                let info = JSON.parse(body);
+                
+                carateRate = info.ppc || ''; 
+                if(carateRate != ''){
+                    methodParam = {};
+                    methodParam["carateRate"] = carateRate;
+                    methodParam["logUsr"] = logUsr;
+                    methodParam["coIdn"] = coIdn;
+                    methodParam["attr_id"] = attr_id;
+                    methodParam["packetData"] = packetData;
+                    updatePrice(methodParam, connection,  function (error, priceDetails) {
+                        if (error) {
+                            console.log(error);
+                            outJson["result"] = '';
+                            outJson["status"] = "FAIL";
+                            outJson["message"] = "Fail To Update Price in stock master!";
+                            callback(null, outJson);
+                        } else {
+                            callback(null, priceDetails);
+                        }
+                    })
+                } else{
+                    console.log(error);
+                    outJson["message"]=error;
+                    outJson["status"]="FAIL";
+                    callback(null,outJson);   
+                }  
+            } catch(e) {
+                outJson["status"] = "FAIL";
+                outJson["message"] = "Error in Carat Rate API";
+                callback(null, outJson);
+            }       
         }else{
             console.log(error);
             outJson["message"]=error;
@@ -4022,7 +4028,7 @@ exports.fullStockSync = async function(req,res,tpoolconn,redirectParam,callback)
 
     for(let i=0;i<processArry.length;i++){
         let processNme = processArry[i] || '';
-
+        //console.log("processNme",processNme);
         let methodParam = {};
         methodParam["coIdn"] = coIdn;
         methodParam["process"] = processNme;
