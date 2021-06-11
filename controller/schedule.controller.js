@@ -4793,7 +4793,7 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                         //now = new Date();
                         //var dtes=dateFormat(now, "ddmmmyyyy_hMMss");
                         //console.log("start",dtes);
-                        let writerStream = fs.createWriteStream('../files/'+filename);
+                        let writerStream = fs.createWriteStream('files/'+filename);
                         writerStream.write(csv,'UTF8'); //writeFile
                         writerStream.end();
                         //fs.writeFile('files/'+filename, csv,async function(err) {
@@ -5421,7 +5421,7 @@ function saveExcel(connection,paramJson,callback){
            var maxWd = columnmList[col]||10;
               worksheet.column(col).setWidth(maxWd);
     }
-    workbook.write('../files/'+fileName, function(err, stats) {
+    workbook.write('files/'+fileName, function(err, stats) {
         if (err) {
             console.error(err);
             outJson["result"]='';
