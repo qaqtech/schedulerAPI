@@ -2965,12 +2965,15 @@ function mailSendSaleSummary(connection,paramJson,callback){
                                 html: body // html body
                                 };
                             //  console.log(mailOptions);
-                            coreUtil.sendMail(mailOptions);
+                            coreUtil.sendMail(mailOptions).then(mailResult =>{
+                           // console.log("mailResult",mailResult);
+                            
                             
                             outJson["result"]='';
                             outJson["status"]="SUCCESS";
                             outJson["message"]="Mail Sent Successfully!";
                             callback(null,outJson);
+                            })
                         }
                     })
                 }else{
@@ -4790,7 +4793,7 @@ async function getStockFile(tpoolconn,redirectParam,callback) {
                         //now = new Date();
                         //var dtes=dateFormat(now, "ddmmmyyyy_hMMss");
                         //console.log("start",dtes);
-                        let writerStream = fs.createWriteStream('files/'+filename);
+                        let writerStream = fs.createWriteStream('../files/'+filename);
                         writerStream.write(csv,'UTF8'); //writeFile
                         writerStream.end();
                         //fs.writeFile('files/'+filename, csv,async function(err) {
@@ -5418,7 +5421,7 @@ function saveExcel(connection,paramJson,callback){
            var maxWd = columnmList[col]||10;
               worksheet.column(col).setWidth(maxWd);
     }
-    workbook.write('files/'+fileName, function(err, stats) {
+    workbook.write('../files/'+fileName, function(err, stats) {
         if (err) {
             console.error(err);
             outJson["result"]='';
