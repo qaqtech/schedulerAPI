@@ -735,23 +735,25 @@ async function getMFGDetails(paramJson,callback) {
             }else{
                 let fmt = {};
                 let params=[];
-
+ 
                 var sql="with base_qry as \n"+
-                    "( select c.lt_nmbr,c.asrt_pckt_nmbr,c.ref_nmbr pckt_nmbr,d.pln_id,d.pln_sqnc_nmbr ,c.pckt_id, \n"+
-                    "d.attr_id,case when c.pckt_nmbr=c.asrt_pckt_nmbr then c.pckt_cnt else 0 end as rgh_crts, \n"+
-                    "c.stg_flg, \n"+
-                    "(select p.pckt_id from pkt_master_m p where p.lt_nmbr=c.lt_nmbr and p.pckt_nmbr=c.asrt_pckt_nmbr) apkt_id, \n"+
-                    "c.fnl_cnts cur_crts, coalesce(c.prcs_cd,c.nxt_prcs) prcs_cd, coalesce(c.fnct_cd,c.nxt_fnct) fnct_cd, \n"+
-                    "c.pckt_stts, \n"+
-                    "Rank() over(partition by c.pckt_id order by d.pln_id,d.pln_sqnc_nmbr) pln_sr, \n"+
+                    "( select c.lt_nmbr,c.asrt_pckt_nmbr,c.ref_nmbr pckt_nmbr,d.pln_id,d.pln_sqnc_nmbr ,c.pckt_id,  \n"+
+                    "d.attr_id \n"+
+                    "--,case when c.pckt_nmbr=c.asrt_pckt_nmbr then c.pckt_cnt else 0 end as rgh_crts,  \n"+
+                    ", c.rgh_cnt as rgh_crts \n"+
+                    ", c.stg_flg \n"+
+                    ", (select p.pckt_id from pkt_master_m p where p.lt_nmbr=c.lt_nmbr and p.pckt_nmbr=c.asrt_pckt_nmbr) apkt_id,  \n"+
+                    "c.fnl_cnts cur_crts, coalesce(c.prcs_cd,c.nxt_prcs) prcs_cd, coalesce(c.fnct_cd,c.nxt_fnct) fnct_cd,  \n"+
+                    "c.pckt_stts,  \n"+
+                    "Rank() over(partition by c.pckt_id order by d.pln_id,d.pln_sqnc_nmbr) pln_sr,  \n"+
                     "coalesce(c.to_cmpn_cd,c.fctr_id) unit_id, \n"+
                     "d.pln_vlu, \n"+
-                    "e.unit_id mfg_fctr_id, \n"+
+                    "e.unit_id mfg_fctr_id,  \n"+
                     "e.blck_cd, \n"+
                     "(select p.prfn_nm from mfg_rule_m p \n"+
                     "where p.rule_typ='GM_FLW_MGR' and p.fctr_id=e.fctr_id \n"+
                     "and p.unit_id=e.unit_id \n"+
-                    "and p.flg1=c.flw_typ \n"+
+                    "and p.flg1=c.flw_typ  \n"+
                     "--and p.flg3=e.blck_cd \n"+
                     "and p.to_dt is null \n"+
                     "limit 1) mfg_fctr_nm \n"+
@@ -760,6 +762,7 @@ async function getMFGDetails(paramJson,callback) {
                     "on e.pckt_id=c.pckt_id and e.stg_flg='GM' \n"+
                     "left outer join pkt_plning_t d \n"+
                     "on c.pckt_id=d.pckt_id \n"+
+                    "--and c.lt_nmbr = 'LRYLGV'\n"+
                     "and d.pln_id = ( select max(b.pln_id) from pkt_fnlpln_t b \n"+
                     "where b.pckt_id=c.pckt_id \n"+
                     "and b.trns_srno=(select max(a.trns_srno) from pkt_fnlpln_t a \n"+
@@ -767,11 +770,12 @@ async function getMFGDetails(paramJson,callback) {
                     "and a.pln_typ in ('MF','F') )) \n"+
                     "where c.actv_flg='Y' and c.stg_flg not like 'RE%' \n"+
                     ")  \n"+
-                    "select  a.*,case when a.pln_sr=1 then a.rgh_crts else 0 end rgh_crts_nw,  \n"+
-                    "(case when a.attr_id is not null then (select json_object_agg(lower(t.mprp), t.srt) from pkt_atrdtl_t t \n"+ 
+                    "select  a.*, rgh_crts rgh_crts_nw \n"+
+                    ",  (case when a.attr_id is not null then (select json_object_agg(lower(t.mprp), t.srt) from pkt_atrdtl_t t \n"+
                     "where t.pckt_id=a.pckt_id and t.attr_id=a.attr_id and t.srt is not null) else null end ) attr \n"+
-                    "from base_qry a \n"+
-                    "where attr_id is not null ";
+                    "--case when a.pln_sr=1 then a.rgh_crts else 0 end rgh_crts_nw \n"+
+                    "from base_qry a  \n"+
+                    "where 1 = 1 --attr_id is not null ";
 
 
                 //params.push(fromDate);
