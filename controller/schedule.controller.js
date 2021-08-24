@@ -739,7 +739,8 @@ async function getMFGDetails(paramJson,callback) {
                 var sql="with base_qry as \n"+
                     "( select c.lt_nmbr,c.asrt_pckt_nmbr,c.ref_nmbr pckt_nmbr,d.pln_id,d.pln_sqnc_nmbr ,c.pckt_id, \n"+
                     "d.attr_id \n"+
-                    "--,case when c.pckt_nmbr=c.asrt_pckt_nmbr then c.pckt_cnt else 0 end as rgh_crts,  \n"+
+                    ", case when d.attr_id is null then c.pckt_cnt \n"+
+                    "else case when c.pckt_nmbr=c.asrt_pckt_nmbr then c.pckt_cnt else 0 end end as rgh_wt \n"+
                     ", c.rgh_cnt as rgh_crts \n"+
                     ", c.stg_flg \n"+
                     ",coalesce(c.to_cmpn_cd,c .fctr_id) unit_id \n"+
@@ -762,20 +763,22 @@ async function getMFGDetails(paramJson,callback) {
                     "on e.pckt_id=c.pckt_id and e.stg_flg='GM' \n"+
                     "left outer join pkt_plning_t d \n"+
                     "on c.pckt_id=d.pckt_id \n"+
-                    "--and c.lt_nmbr = 'LRYLGV' \n"+
                     "and d.pln_id = ( select max(b.pln_id) from pkt_fnlpln_t b \n"+
                     "where b.pckt_id=c.pckt_id \n"+
                     "and b.trns_srno=(select max(a.trns_srno) from pkt_fnlpln_t a \n"+
                     "where a.pckt_id=b.pckt_id \n"+
                     "and a.pln_typ in ('MF','F') ))  \n"+
                     "where c.actv_flg='Y' and c.stg_flg not like 'RE%' \n"+
+                    "--and c.lt_nmbr = 'LRYLGV' \n"+
                     ")  \n"+
-                    "select  a.*, case when a.pln_sr=1 then a.rgh_crts else 0 end rgh_crts_nw \n"+
+                    "select  a.*  \n"+
+                    ", case when a.pln_sr=1 then a.rgh_wt else 0 end rgh_wt \n"+
+                    ", case when a.pln_sr=1 then a.rgh_crts else 0 end rgh_crts_nw \n"+
                     ",  (case when a.attr_id is not null then (select json_object_agg(lower(t.mprp), t.srt) from pkt_atrdtl_t t  \n"+
                     "where t.pckt_id=a.pckt_id and t.attr_id=a.attr_id and t.srt is not null) else null end ) attr  \n"+
                     "--case when a.pln_sr=1 then a.rgh_crts else 0 end rgh_crts_nw \n"+
                     "from base_qry a  \n"+
-                    "where 1 = 1 --attr_id is not null  ";
+                    "where 1 = 1 --attr_id is not null   ";
 
 
                 //params.push(fromDate);
@@ -823,6 +826,7 @@ async function getMFGDetails(paramJson,callback) {
                                 k["plan_vlu"]=data.pln_vlu || 0;
                                 k["mfg_fctr_nm"] = data.mfg_fctr_nm || '';
                                 k["blck_cd"] = data.blck_cd || '';
+                                k["rgh_wt"] = data.rgh_wt;
                                 mfgDataList.push(k);                                      
                             }
 
@@ -1062,11 +1066,11 @@ function insertMFGPlanPkt(methodParam,tpoolconn,callback){
 
    
     let insertQ="insert into mfg_plan_pkt_t(mfg_pckt_id,ase_pckt_id,"+
-        "attr_id,mfg_lt_nmbr,pln_id,pln_sqnc_nmbr,cstm_nmbr,attr,rgh_cts ,mfg_pckt_nmbr,mfg_stage,plan_vlu,mfg_fctr_nm,blck_cd,stt,created_ts) "+ //,mfg_trns_dte
+        "attr_id,mfg_lt_nmbr,pln_id,pln_sqnc_nmbr,cstm_nmbr,attr,rgh_cts ,mfg_pckt_nmbr,mfg_stage,plan_vlu,mfg_fctr_nm,blck_cd,rgh_wt,stt,created_ts) "+ //,mfg_trns_dte
         "select *,1 stt,current_timestamp created_ts from "+
         "jsonb_to_recordset('"+JSON.stringify(mfgDataList)+"'::jsonb) "+
         "as x(mfg_pckt_id int,ase_pckt_id int,attr_id bigInt,mfg_lt_nmbr varchar,"+
-        "pln_id bigInt,pln_sqnc_nmbr int,cstm_nmbr int,attr jsonb,rgh_cts numeric,mfg_pckt_nmbr varchar,mfg_stage varchar,plan_vlu numeric,mfg_fctr_nm varchar,blck_cd varchar)  "; //,mfg_trns_dte date
+        "pln_id bigInt,pln_sqnc_nmbr int,cstm_nmbr int,attr jsonb,rgh_cts numeric,mfg_pckt_nmbr varchar,mfg_stage varchar,plan_vlu numeric,mfg_fctr_nm varchar,blck_cd varchar,rgh_wt numeric)  "; //,mfg_trns_dte date
 
     //console.log(insertQ);
     //console.log(params);
