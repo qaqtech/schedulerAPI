@@ -1888,7 +1888,7 @@ function updatePGXrt(methodParam,tpoolconn,callback){
                         outJson["message"]="Error In insert currency_xrt Method!"+error.message;
                         callback(null,outJson);
                     }else{
-                        //coreDB.doTransCommit(tpoolconn);
+                        ///coreDB.doTransCommit(tpoolconn);
                         var rowCount = result.rowCount;
                         if(rowCount>0){     
                             //console.log("DONE");
